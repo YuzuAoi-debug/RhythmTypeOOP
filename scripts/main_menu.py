@@ -156,6 +156,12 @@ class MainMenu:
                     return "quit"
                 if event.type == self.SONG_END:
                     self._play_next_song()
+                if event.type == pygame.DROPFILE:
+                    from beatmap_importer import BeatmapImporter
+                    imported = BeatmapImporter.import_file(event.file)
+                    if imported:
+                        pygame.mixer.music.stop()
+                        return "song_select"
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         if self.options_open:

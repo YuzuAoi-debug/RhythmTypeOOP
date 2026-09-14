@@ -49,6 +49,12 @@ class GlobalState:
     HITSOUND_PATH = get_asset_path("gameplay_audio/hitsound.wav")
     MISS_SOUND_PATH = get_asset_path("gameplay_audio/miss-sound.wav")
     
+    MUSIC_DIR = BASE_DIR / "assets" / "audio" / "music"
+
+    # Active song indices for SongSelect navigation
+    selected_song_index: int = 0
+    expanded_song_index: int = 0
+
     # Payload for the active song to play
     selected_song_data = {}
     
@@ -81,6 +87,27 @@ class GlobalState:
             ]
         }
     ]
+
+    @classmethod
+    def scan_songs(cls):
+        """Dynamically scans assets/audio/music/ directory to discover all beatmaps and difficulties."""
+        if not cls.MUSIC_DIR.exists():
+            return
+
+        try:
+            from beatmap_parser import BeatmapParser
+            scanned = []
+            for entry in sorted(cls.MUSIC_DIR.iterdir()):
+                if entry.is_dir():
+                    song_data = BeatmapParser.scan_song_directory(str(entry))
+                    if song_data and song_data.get("difficulties"):
+                        song_data["difficulties"].sort(key=lambda d: d.get("note_count", 0))
+                        scanned.append(song_data)
+
+            if scanned:
+                cls.song_list = scanned
+        except Exception as e:
+            print(f"Warning: Error scanning songs ({e}). Using default song list.")
 
     @classmethod
     def load_settings(cls):
@@ -118,5 +145,6 @@ class GlobalState:
         except Exception as e:
             print(f"Warning: Failed to save settings ({e}).")
 
-# Auto-load existing settings upon import
+# Auto-load existing settings and scan available beatmaps upon import
 GlobalState.load_settings()
+GlobalState.scan_songs()

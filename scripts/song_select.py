@@ -20,10 +20,11 @@ class SongSelect:
         self.font_small = pygame.font.SysFont("Arial", 15)
         self.font_preview_title = pygame.font.SysFont("Arial", 28, bold=True)
         
-        self.expanded_song_index = 0 if GlobalState.song_list else -1
-        self.selected_song_index = 0 if GlobalState.song_list else -1
-        self.scroll_y = 0.0
-        self.target_scroll_y = 0.0
+        total_songs = len(GlobalState.song_list)
+        self.expanded_song_index = GlobalState.expanded_song_index if 0 <= GlobalState.expanded_song_index < total_songs else (0 if total_songs > 0 else -1)
+        self.selected_song_index = GlobalState.selected_song_index if 0 <= GlobalState.selected_song_index < total_songs else (0 if total_songs > 0 else -1)
+        self.scroll_y = -max(0.0, self.selected_song_index * 75.0 - 100.0)
+        self.target_scroll_y = self.scroll_y
 
         # Cache preview background art
         self.bg_cache = {}
@@ -54,6 +55,19 @@ class SongSelect:
                     mouse_clicked = True
                 if event.type == pygame.MOUSEWHEEL:
                     self.target_scroll_y += event.y * 45.0
+                if event.type == pygame.DROPFILE:
+                    from beatmap_importer import BeatmapImporter
+                    imported = BeatmapImporter.import_file(event.file)
+                    if imported:
+                        self.expanded_song_index = GlobalState.expanded_song_index
+                        self.selected_song_index = GlobalState.selected_song_index
+                        bg_path = imported.get("background_path")
+                        if bg_path and bg_path not in self.bg_cache:
+                            try:
+                                self.bg_cache[bg_path] = pygame.image.load(bg_path).convert()
+                            except Exception:
+                                pass
+                        self.target_scroll_y = -max(0.0, self.selected_song_index * 75.0 - 100.0)
 
             # Calculate content height to clamp scrolling
             total_content_height = 0
