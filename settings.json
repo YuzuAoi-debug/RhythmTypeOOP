@@ -1,0 +1,8 @@
+{
+    "music_volume": 0.65,
+    "sfx_volume": 0.75,
+    "note_speed": 10.5,
+    "fps_mode": "60fps",
+    "audio_offset_ms": -15.0,
+    "bg_brightness": 0.22
+}
