@@ -3,7 +3,7 @@ import math
 import random
 from typing import Optional
 import pygame
-from global_state import GlobalState, get_fps_target
+from global_state import GlobalState, get_asset_path, get_fps_target
 
 class MainMenu:
     def __init__(self, screen):
@@ -16,11 +16,13 @@ class MainMenu:
         self.ACCENT_COLOR = (0, 229, 255)
         self.TEXT_COLOR = (245, 245, 255)
         self.MUTED_COLOR = (110, 110, 140)
+        self.BORDER_COLOR = (45, 48, 65)
         
-        self.font_title = pygame.font.SysFont("Arial", 64, bold=True)
-        self.font_btn = pygame.font.SysFont("Arial", 28, bold=True)
-        self.font_btn_small = pygame.font.SysFont("Arial", 20, bold=True)
-        self.font_small = pygame.font.SysFont("Arial", 16)
+        self.font_title = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 58)
+        self.font_btn = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 24)
+        self.font_btn_small = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 18)
+        self.font_small = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 16)
+        self.font_mono = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 12)
         
         self.playlist = []
         self.now_playing = ""
@@ -28,6 +30,10 @@ class MainMenu:
         self.bg_cache = {}
         self.options_open = False
         self.active_slider = None  # 'music', 'sfx', 'offset'
+        self.buttons = ["PLAY", "OPTIONS", "EXIT"]
+        self.btn_hover_progress = [0.0, 0.0, 0.0]
+        self.keyboard_focus_idx = 0
+        self.hovered_btn = None
         
         # Load logo assets
         self.logo_hero = None
@@ -39,6 +45,8 @@ class MainMenu:
                 self.logo_small = pygame.transform.smoothscale(raw_logo, (76, 76))
             except Exception:
                 pass
+            
+        self.visualizer_bars = [random.uniform(4, 18) for _ in range(8)]
         
         # Temporary settings buffer for options menu
         self.temp_speed = GlobalState.note_speed
@@ -114,7 +122,10 @@ class MainMenu:
             scaled = pygame.transform.smoothscale(raw, (self.width, self.height))
             # Dark stylish vignette for readibility
             overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-            overlay.fill((12, 12, 18, 195))
+            for x in range(self.width):
+                ratio = x / self.width
+                alpha = int(220 * max(0.0, 1.0 - ratio * 1.35)) + 25
+                pygame.draw.line(overlay, (10, 11, 16, min(240, alpha)), (x, 0), (x, self.height))
             scaled.blit(overlay, (0, 0))
             self.bg_cache[path] = scaled
             self.current_bg = scaled
@@ -128,14 +139,14 @@ class MainMenu:
         
         if self.playlist:
             song = self.playlist.pop(0)
-            self.now_playing = f"Now Playing ♫ : {song['title']}"
+            self.now_playing = f"NOW PLAYING ♫ : {song['title']}"
             self._load_bg(str(song.get("background_path") or ""))
             try:
                 pygame.mixer.music.load(song["audio_path"])
                 pygame.mixer.music.set_volume(GlobalState.music_volume)
                 pygame.mixer.music.play()
             except Exception:
-                self.now_playing = "Now Playing ♫ : (Audio file missing)"
+                self.now_playing = "NOW PLAYING ♫ : (Audio file missing)"
 
     def _save_options(self):
         GlobalState.note_speed = self.temp_speed
@@ -148,6 +159,86 @@ class MainMenu:
         GlobalState.bg_brightness = self.temp_bg_brightness
         pygame.mixer.music.set_volume(GlobalState.music_volume)
         GlobalState.save_settings()
+
+    def draw_skew_button(self, text, rect, progress, time_ms, skew=14):
+        slide_offset = progress * 10
+        x = rect.x + slide_offset
+        y = rect.y
+        w, h = rect.width, rect.height
+
+        pts = [
+            (x + skew, y),
+            (x + w, y),
+            (x + w - skew, y + h),
+            (x, y + h)
+        ]
+
+        if progress > 0.01:
+            pulse = (math.sin(time_ms * 0.007) + 1.0) * 0.5
+            glow_layers = [
+                (12, int((15 + 20 * pulse) * progress)),
+                (7,  int((40 + 30 * pulse) * progress)),
+                (3,  int((100 + 40 * pulse) * progress)),
+            ]
+
+            max_pad = 14
+            glow_surf = pygame.Surface((w + max_pad * 2, h + max_pad * 2), pygame.SRCALPHA)
+
+            for pad, alpha in glow_layers:
+                if alpha <= 0:
+                    continue
+                g_pts = [
+                    (max_pad + skew - pad, max_pad - pad),
+                    (max_pad + w + pad, max_pad - pad),
+                    (max_pad + w - skew + pad, max_pad + h + pad),
+                    (max_pad - pad, max_pad + h + pad)
+                ]
+                pygame.draw.polygon(glow_surf, (*self.ACCENT_COLOR, alpha), g_pts)
+
+            self.screen.blit(glow_surf, (x - max_pad, y - max_pad))
+
+        depth_pts = [
+            (x, y + h),
+            (x + w - skew, y + h),
+            (x + w - skew, y + h + 4),
+            (x, y + h + 4)
+        ]
+        pygame.draw.polygon(self.screen, (10, 10, 15), depth_pts)
+
+        body_color = (
+            int(self.PANEL_COLOR[0] + (self.HOVER_COLOR[0] - self.PANEL_COLOR[0]) * progress),
+            int(self.PANEL_COLOR[1] + (self.HOVER_COLOR[1] - self.PANEL_COLOR[1]) * progress),
+            int(self.PANEL_COLOR[2] + (self.HOVER_COLOR[2] - self.PANEL_COLOR[2]) * progress),
+        )
+        pygame.draw.polygon(self.screen, body_color, pts)
+
+        border_col = (
+            int(self.BORDER_COLOR[0] + (self.ACCENT_COLOR[0] - self.BORDER_COLOR[0]) * progress),
+            int(self.BORDER_COLOR[1] + (self.ACCENT_COLOR[1] - self.BORDER_COLOR[1]) * progress),
+            int(self.BORDER_COLOR[2] + (self.ACCENT_COLOR[2] - self.BORDER_COLOR[2]) * progress),
+        )
+        pygame.draw.polygon(self.screen, border_col, pts, 2)
+
+        if progress > 0.05:
+            accent_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+            tab_pts = [(skew, 0), (skew + 6, 0), (6, h), (0, h)]
+            pygame.draw.polygon(accent_surf, (*self.ACCENT_COLOR, int(255 * progress)), tab_pts)
+            self.screen.blit(accent_surf, (x, y))
+
+        display_label = f"[  {text}  ]" if progress > 0.5 else text
+        font_col = (
+            int(self.TEXT_COLOR[0] + (self.ACCENT_COLOR[0] - self.TEXT_COLOR[0]) * progress),
+            int(self.TEXT_COLOR[1] + (self.ACCENT_COLOR[1] - self.TEXT_COLOR[1]) * progress),
+            int(self.TEXT_COLOR[2] + (self.ACCENT_COLOR[2] - self.TEXT_COLOR[2]) * progress),
+        )
+
+        if progress > 0.3:
+            shadow_surf = self.font_btn.render(display_label, True, self.ACCENT_COLOR)
+            shadow_surf.set_alpha(int(180 * progress))
+            self.screen.blit(shadow_surf, shadow_surf.get_rect(center=(x + w // 2 + 5, y + h // 2 + 1)))
+
+        surf = self.font_btn.render(display_label, True, font_col)
+        self.screen.blit(surf, surf.get_rect(center=(x + w // 2 + 4, y + h // 2)))
 
     def draw_button(self, text, rect, is_hovered, small=False):
         color = self.HOVER_COLOR if is_hovered else self.PANEL_COLOR
@@ -168,6 +259,15 @@ class MainMenu:
         knob_x = rect.x + fill_width
         pygame.draw.circle(self.screen, self.TEXT_COLOR, (knob_x, rect.centery), 8)
 
+    def draw_audio_visualizer(self, x, y):
+        bar_w, gap = 3, 2
+        for i in range(len(self.visualizer_bars)):
+            target = random.uniform(3, 18)
+            self.visualizer_bars[i] += (target - self.visualizer_bars[i]) * 0.25
+            h = int(self.visualizer_bars[i])
+            bx = x + i * (bar_w + gap)
+            pygame.draw.rect(self.screen, self.ACCENT_COLOR, (bx, y - h, bar_w, h))
+    
     def run(self):
         clock = pygame.time.Clock()
         
@@ -177,6 +277,7 @@ class MainMenu:
         play_rect = pygame.Rect(100, start_y, btn_width, btn_height)
         options_rect = pygame.Rect(100, start_y + 75, btn_width, btn_height)
         exit_rect = pygame.Rect(100, start_y + 150, btn_width, btn_height)
+        menu_rects = [play_rect, options_rect, exit_rect]
 
         panel_rect = pygame.Rect(self.width // 2 - 270, self.height // 2 - 280, 540, 560)
         speed_minus_hundredth = pygame.Rect(panel_rect.x + 35, panel_rect.y + 110, 100, 36)
@@ -195,6 +296,7 @@ class MainMenu:
         running = True
         while running:
             target_fps = get_fps_target(GlobalState.fps_mode)
+            current_time = pygame.time.get_ticks()
             mouse_pos = pygame.mouse.get_pos()
             mouse_clicked = False
             
@@ -208,7 +310,14 @@ class MainMenu:
                     imported = BeatmapImporter.import_file(event.file)
                     if imported:
                         pygame.mixer.music.stop()
-                        return "song_select"
+                        return "song_select" 
+                    
+                if event.type == pygame.MOUSEMOTION and not self.options_open:
+                    for rect in menu_rects:
+                        if rect.collidepoint(event.pos):
+                            self.keyboard_focus_idx = None
+                            break
+                                  
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         if self.options_open:
@@ -231,7 +340,7 @@ class MainMenu:
                         self.preview_sound.set_volume(self.temp_sfx_volume)
                         self.preview_sound.play()
                     self.active_slider = None
-
+                    
             # Handle live slider dragging
             if self.active_slider == "music":
                 self.temp_music_volume = max(0.0, min(1.0, (mouse_pos[0] - music_slider_rect.x) / music_slider_rect.width))
@@ -255,24 +364,39 @@ class MainMenu:
             # Left Branding & Track Info
             if self.logo_small:
                 self.screen.blit(self.logo_small, (100, 75))
-                title_surf = self.font_title.render("RHYTHMTYPE", True, self.TEXT_COLOR)
-                self.screen.blit(title_surf, (190, 76))
-                
-                sub_surf = self.font_small.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
-                self.screen.blit(sub_surf, (194, 142))
-                
-                now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
-                self.screen.blit(now_playing_surf, (100, 185))
+                logo_x, logo_y = 190, 76
             else:
-                title_surf = self.font_title.render("RHYTHMTYPE", True, self.TEXT_COLOR)
-                self.screen.blit(title_surf, (100, 100))
-                
-                sub_surf = self.font_small.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
-                self.screen.blit(sub_surf, (105, 175))
-                
-                now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
-                self.screen.blit(now_playing_surf, (105, 205))
+                logo_x, logo_y = 100, 100
 
+            # Dual-tone Brand Title (Shadows)
+            title_font = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 72)
+            shadow_rhythm = title_font.render("RHYTHM", True, (0, 0, 0))
+            shadow_type = title_font.render("TYPE", True, (0, 0, 0))
+            self.screen.blit(shadow_rhythm, (logo_x + 3, logo_y + 3))
+            self.screen.blit(shadow_type, (logo_x + shadow_rhythm.get_width() + 18, logo_y + 3))
+
+            # Dual-tone Brand Title (White + Blue)
+            surf_rhythm = title_font.render("RHYTHM", True, self.TEXT_COLOR)
+            surf_type = title_font.render("TYPE", True, self.ACCENT_COLOR)
+            self.screen.blit(surf_rhythm, (logo_x, logo_y))
+            self.screen.blit(surf_type, (logo_x + surf_rhythm.get_width() + 15, logo_y))
+
+            # Subtitles & Visualizer positions based on logo presence
+            if self.logo_small:
+                sub_surf = self.font_mono.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
+                self.screen.blit(sub_surf, (190, 137))
+
+                self.draw_audio_visualizer(100, 200)
+                now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
+                self.screen.blit(now_playing_surf, (145, 189))
+            else:
+                sub_surf = self.font_mono.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
+                self.screen.blit(sub_surf, (190, 130))
+
+                self.draw_audio_visualizer(105, 220)
+                now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
+                self.screen.blit(now_playing_surf, (150, 205))
+                            
             # Right Hero Showcase
             if self.logo_hero and not self.options_open:
                 hero_x = self.width - 460
@@ -374,33 +498,41 @@ class MainMenu:
                         self.options_open = False
                         self.hovered_btn = None
             else:
-                play_hover = play_rect.collidepoint(mouse_pos)
-                opt_hover = options_rect.collidepoint(mouse_pos)
-                exit_hover = exit_rect.collidepoint(mouse_pos)
-                
-                # Hover tracking for main menu buttons
                 curr_hover = None
-                if play_hover:
-                    curr_hover = "play"
-                elif opt_hover:
-                    curr_hover = "options"
-                elif exit_hover:
-                    curr_hover = "exit"
+                for i, (name, rect) in enumerate(zip(self.buttons, menu_rects)):
+                    mouse_over = rect.collidepoint(mouse_pos)
+                    key_over = (self.keyboard_focus_idx == i)
+                    if mouse_over or key_over:
+                        curr_hover = name.lower()
 
                 if curr_hover != self.hovered_btn:
                     if curr_hover is not None:
                         self._play_hover()
                     self.hovered_btn = curr_hover
 
-                self.draw_button("PLAY", play_rect, play_hover)
-                self.draw_button("OPTIONS", options_rect, opt_hover)
-                self.draw_button("EXIT", exit_rect, exit_hover)
-                
+                # Smoothly update animation progress per button (lerp)
+                for i, rect in enumerate(menu_rects):
+                    is_active = (rect.collidepoint(mouse_pos) or self.keyboard_focus_idx == i)
+                    target = 1.0 if is_active else 0.0
+                    self.btn_hover_progress[i] += (target - self.btn_hover_progress[i]) * 0.2
+                    if abs(self.btn_hover_progress[i] - target) < 0.005:
+                        self.btn_hover_progress[i] = target
+
+                # Render Main Buttons with smooth slanted animation and zero-residual glow
+                for i, (name, rect) in enumerate(zip(self.buttons, menu_rects)):
+                    self.draw_skew_button(name, rect, self.btn_hover_progress[i], current_time)
+
+                # Arcade Keybinds Footer
+                footer_y = self.height - 35
+                pygame.draw.line(self.screen, (30, 32, 45), (0, footer_y - 10), (self.width, footer_y - 10), 1)
+                hud_text = self.font_mono.render("[ ↑ / ↓ / W / S ] NAVIGATE     [ ENTER / CLICK ] SELECT     [ DRAG & DROP ] BEATMAP FILE", True, self.MUTED_COLOR)
+                self.screen.blit(hud_text, (100, footer_y))
+                                
                 if mouse_clicked:
-                    if play_hover:
+                    if play_rect.collidepoint(mouse_pos):
                         self._play_click()
                         return "song_select"
-                    elif opt_hover:
+                    elif options_rect.collidepoint(mouse_pos):
                         self._play_click()
                         self.temp_speed = GlobalState.note_speed
                         self.temp_music_volume = GlobalState.music_volume
@@ -410,11 +542,9 @@ class MainMenu:
                         self.temp_fps_mode = GlobalState.fps_mode
                         self.options_open = True
                         self.hovered_btn = None
-                    elif exit_hover:
+                    elif exit_rect.collidepoint(mouse_pos):
                         self._play_click()
                         return "quit"
 
             pygame.display.flip()
             clock.tick(target_fps)
-
-        return "quit"
