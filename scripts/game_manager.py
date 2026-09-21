@@ -524,7 +524,7 @@ class GameManager:
                 ripple["alpha"] -= 500.0 * dt
                 if ripple["alpha"] > 0 and ripple["radius"] < 75:
                     r_rad = int(ripple["radius"])
-                    r_alpha = int(max(0, min(255, ripple["alpha"])))
+                    r_alpha = max(0, min(255, ripple["alpha"]))
                     r_surf = pygame.Surface((r_rad * 2 + 4, r_rad * 2 + 4), pygame.SRCALPHA)
                     pygame.draw.circle(r_surf, (*ripple["color"], r_alpha), (r_rad + 2, r_rad + 2), r_rad, 3)
                     self.screen.blit(r_surf, (ripple["x"] - r_rad - 2, ripple["y"] - r_rad - 2))
