@@ -1,0 +1,4 @@
+﻿nodeenv==1.10.0
+pygame==2.6.1
+pyright==1.1.414
+typing_extensions==4.16.0

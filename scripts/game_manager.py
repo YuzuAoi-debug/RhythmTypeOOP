@@ -571,7 +571,7 @@ class GameManager:
                     active_note = notes[current_note_idx]
                     cur_w_idx = active_note["word_index"]
                     cur_c_idx = active_note["char_index"]
-                    cur_word = words_list[cur_w_idx]
+                    cur_word = words_list[cur_w_idx] if cur_w_idx < len(words_list) else ""
 
                     # 1. Completed letters (Green)
                     if cur_c_idx > 0:
@@ -628,3 +628,6 @@ class GameManager:
             self.screen.blit(ur_text_surf, (self.width // 2 - ur_text_surf.get_width() // 2, self.height - 35))
 
             pygame.display.flip()
+
+        conductor.stop()
+        return "menu"

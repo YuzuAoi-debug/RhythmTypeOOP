@@ -366,7 +366,7 @@ class MainMenu:
                         self.temp_speed = min(20.0, round(self.temp_speed + 0.1, 2))
                     elif fps_rect.collidepoint(mouse_pos):
                         self._play_click()
-                        current_index = self.fps_modes.index(self.temp_fps_mode)
+                        current_index = self.fps_modes.index(self.temp_fps_mode) if self.temp_fps_mode in self.fps_modes else 0
                         self.temp_fps_mode = self.fps_modes[(current_index + 1) % len(self.fps_modes)]
                     elif close_opt_rect.collidepoint(mouse_pos):
                         self._play_click()
@@ -416,3 +416,5 @@ class MainMenu:
 
             pygame.display.flip()
             clock.tick(target_fps)
+
+        return "quit"

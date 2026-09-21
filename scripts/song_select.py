@@ -62,6 +62,12 @@ class SongSelect:
                 except Exception:
                     pass
 
+        # Banner gradient fade cache
+        self.fade_surf = pygame.Surface((490, 80), pygame.SRCALPHA)
+        for y in range(80):
+            alpha = int(255 * (y / 80.0))
+            pygame.draw.line(self.fade_surf, (22, 22, 30, alpha), (0, y), (490, y))
+
     def _play_hover(self):
         if self.hover_sound:
             try:
@@ -138,11 +144,7 @@ class SongSelect:
                         # Rounded top corners clipping
                         self.screen.blit(banner, (740, 130))
                         # Subtle gradient fade at bottom of banner
-                        fade_surf = pygame.Surface((490, 80), pygame.SRCALPHA)
-                        for y in range(80):
-                            alpha = int(255 * (y / 80.0))
-                            pygame.draw.line(fade_surf, (22, 22, 30, alpha), (0, y), (490, y))
-                        self.screen.blit(fade_surf, (740, 290))
+                        self.screen.blit(self.fade_surf, (740, 290))
                     except Exception:
                         pass
 
@@ -253,3 +255,5 @@ class SongSelect:
             self.screen.set_clip(None)
             pygame.display.flip()
             clock.tick(target_fps)
+
+        return "menu"

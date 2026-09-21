@@ -10,7 +10,10 @@ if str(BASE_DIR) not in sys.path:
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from scripts.main_entry_point import main
+try:
+    from scripts.main_entry_point import main
+except ImportError:
+    from main_entry_point import main
 
 if __name__ == "__main__":
     initial_file = sys.argv[1] if len(sys.argv) > 1 else None

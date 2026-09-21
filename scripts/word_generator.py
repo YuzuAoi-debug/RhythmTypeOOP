@@ -199,6 +199,9 @@ class WordGenerator:
         """Generates a non-repeating sequence of easy 3-6 letter words whose
         cumulative character count meets or exceeds total_notes.
         """
+        if total_notes <= 0:
+            return ["START"]
+
         combined_pool = list(set(EASY_WORDS + cls._cached_api_words))
         random.shuffle(combined_pool)
 
