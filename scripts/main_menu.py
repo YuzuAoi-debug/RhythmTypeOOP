@@ -19,10 +19,10 @@ class MainMenu:
         self.BORDER_COLOR = (45, 48, 65)
         
         self.font_title = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 58)
-        self.font_btn = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 24)
-        self.font_btn_small = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 18)
+        self.font_btn = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 24)
+        self.font_btn_small = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 18)
         self.font_small = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 16)
-        self.font_mono = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 12)
+        self.font_mono = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 12)
         
         self.playlist = []
         self.now_playing = ""
@@ -370,21 +370,24 @@ class MainMenu:
 
             # Dual-tone Brand Title (Shadows)
             title_font = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 72)
-            shadow_rhythm = title_font.render("RHYTHM", True, (0, 0, 0))
-            shadow_type = title_font.render("TYPE", True, (0, 0, 0))
-            self.screen.blit(shadow_rhythm, (logo_x + 3, logo_y + 3))
-            self.screen.blit(shadow_type, (logo_x + shadow_rhythm.get_width() + 18, logo_y + 3))
-
-            # Dual-tone Brand Title (White + Blue)
             surf_rhythm = title_font.render("RHYTHM", True, self.TEXT_COLOR)
             surf_type = title_font.render("TYPE", True, self.ACCENT_COLOR)
-            self.screen.blit(surf_rhythm, (logo_x, logo_y))
-            self.screen.blit(surf_type, (logo_x + surf_rhythm.get_width() + 15, logo_y))
+            total_brand_width = surf_rhythm.get_width() + surf_type.get_width() + 2
+            brand_x = logo_x + max(0, (76 - total_brand_width) // 2)
+            brand_y = logo_y
+
+            shadow_rhythm = title_font.render("RHYTHM", True, (0, 0, 0))
+            shadow_type = title_font.render("TYPE", True, (0, 0, 0))
+            self.screen.blit(shadow_rhythm, (brand_x + 3, brand_y + 3))
+            self.screen.blit(shadow_type, (brand_x + shadow_rhythm.get_width() + 2 + 3, brand_y + 3))
+
+            self.screen.blit(surf_rhythm, (brand_x, brand_y))
+            self.screen.blit(surf_type, (brand_x + surf_rhythm.get_width() + 2, brand_y))
 
             # Subtitles & Visualizer positions based on logo presence
             if self.logo_small:
                 sub_surf = self.font_mono.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
-                self.screen.blit(sub_surf, (190, 137))
+                self.screen.blit(sub_surf, (190, 135))
 
                 self.draw_audio_visualizer(100, 200)
                 now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)

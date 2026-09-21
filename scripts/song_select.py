@@ -1,7 +1,7 @@
 import os
 import math
 import pygame
-from global_state import GlobalState, get_fps_target
+from global_state import GlobalState, get_fps_target, get_asset_path
 
 class SongSelect:
     def __init__(self, screen):
@@ -17,18 +17,17 @@ class SongSelect:
         self.MUTED_COLOR = (140, 140, 170)
         self.MUTED_DARK = (115, 115, 150)
         
-        # Typography - enlarged and balanced for modern aesthetic
-        self.font_title = pygame.font.SysFont("Arial", 40, bold=True)
-        self.font_header_sub = pygame.font.SysFont("Arial", 18)
-        self.font_brand = pygame.font.SysFont("Arial", 28, bold=True)
-        self.font_song = pygame.font.SysFont("Arial", 28, bold=True)
-        self.font_song_sub = pygame.font.SysFont("Arial", 17)
-        self.font_diff = pygame.font.SysFont("Arial", 21, bold=True)
-        self.font_small = pygame.font.SysFont("Arial", 15)
-        self.font_preview_title = pygame.font.SysFont("Arial", 32, bold=True)
-        self.font_preview_meta = pygame.font.SysFont("Arial", 21)
-        self.font_preview_diffs = pygame.font.SysFont("Arial", 19, bold=True)
-        self.font_preview_hint = pygame.font.SysFont("Arial", 16)
+        self.font_title = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 40)
+        self.font_header_sub = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 18)
+        self.font_brand = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 28)
+        self.font_song = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 28)
+        self.font_song_sub = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 17)
+        self.font_diff = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 21)
+        self.font_small = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 15)
+        self.font_preview_title = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 28)
+        self.font_preview_meta = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 21)
+        self.font_preview_diffs = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 19)
+        self.font_preview_hint = pygame.font.Font(get_asset_path("assets/font/Comfortaa-Bold.ttf"), 16)
         
         total_songs = len(GlobalState.song_list)
         self.expanded_song_index = GlobalState.expanded_song_index if 0 <= GlobalState.expanded_song_index < total_songs else (0 if total_songs > 0 else -1)
@@ -106,7 +105,6 @@ class SongSelect:
             pass
 
     def _trim_letterbox(self, surface):
-        """Trims black letterbox bars at top and bottom of an image."""
         w, h = surface.get_size()
         top_trim = 0
         for y in range(min(h // 4, 200)):
@@ -131,7 +129,6 @@ class SongSelect:
         return surface
 
     def _process_banner(self, bg_raw, target_w=490, target_h=240, border_radius=12, bg_color=(22, 22, 30)):
-        """Trims black letterbox bars, crops to aspect-fill, rounds top corners, and fades bottom into card."""
         trimmed = self._trim_letterbox(bg_raw)
         cw, ch = trimmed.get_size()
         scale = max(target_w / cw, target_h / ch)
@@ -163,7 +160,6 @@ class SongSelect:
         return final_banner
 
     def _process_frosted_bg(self, bg_raw):
-        """Creates a blurry, frosted-glass acrylic background from raw image."""
         target_w, target_h = self.width, self.height
         trimmed = self._trim_letterbox(bg_raw)
         w, h = trimmed.get_size()
@@ -189,7 +185,6 @@ class SongSelect:
         return blurred
 
     def _render_fitted_text(self, font, text, color, max_w):
-        """Renders text and gracefully fits it within max_w bounds if necessary."""
         surf = font.render(text, True, color)
         if surf.get_width() > max_w:
             scale_ratio = max_w / surf.get_width()
@@ -204,9 +199,36 @@ class SongSelect:
                     if s.get_width() <= max_w:
                         return s
         return surf
+    
+    def _draw_marquee_text(self, font, text, color, pos, max_w, current_time_ms, speed_px_sec=45.0, pause_ms=1500.0):
+        full_surf = font.render(text, True, color)
+        text_w = full_surf.get_width()
+        text_h = full_surf.get_height()
 
+        if text_w <= max_w:
+            self.screen.blit(full_surf, pos)
+            return
+
+        overflow = text_w - max_w
+        scroll_ms = (overflow / speed_px_sec) * 1000.0
+        total_cycle = pause_ms + scroll_ms + pause_ms
+
+        cycle_pos = current_time_ms % total_cycle
+
+        if cycle_pos < pause_ms:
+            offset_x = 0.0
+        elif cycle_pos < pause_ms + scroll_ms:
+            prog = (cycle_pos - pause_ms) / scroll_ms
+            offset_x = -overflow * prog
+        else:
+            offset_x = -overflow
+
+        # Draw into an isolated transparent window to prevent smearing
+        window_surf = pygame.Surface((max_w, text_h), pygame.SRCALPHA)
+        window_surf.blit(full_surf, (offset_x, 0))
+        self.screen.blit(window_surf, pos)
+        
     def _get_diff_colors(self, diff_name: str, index: int, is_hovered: bool):
-        """Returns (plate_color, text_color, border_color) with slight tints of yellow, orange, red, and black/dark based on difficulty tier."""
         d_lower = diff_name.lower()
         
         # Tier: 0 = Yellow (Normal/Easy), 1 = Orange (Hard), 2 = Red (Insane), 3 = Black (Special/Expert/Extra)
@@ -286,6 +308,7 @@ class SongSelect:
         
         while running:
             target_fps = get_fps_target(GlobalState.fps_mode)
+            current_time = pygame.time.get_ticks()
             mouse_pos = pygame.mouse.get_pos()
             mouse_clicked = False
             
@@ -425,12 +448,47 @@ class SongSelect:
             if 0 <= preview_song_idx < len(GlobalState.song_list):
                 sel_song = GlobalState.song_list[preview_song_idx]
                 preview_rect = pygame.Rect(740, 130, 490, 520)
-                
-                # Frosted glass card plate
-                card_surf = pygame.Surface((490, 520), pygame.SRCALPHA)
-                pygame.draw.rect(card_surf, (22, 22, 30, 235), (0, 0, 490, 520), border_radius=12)
-                self.screen.blit(card_surf, (740, 130))
 
+                # --- DYNAMIC GLOW COLOR BY SONG ---
+                # Check song title/id: if it's "confess" or has a custom accent, use warm yellow/orange
+                song_title_lower = sel_song.get("title", "").lower()
+                if "confess" in song_title_lower or "fennel" in song_title_lower:
+                    # Warm Amber / Sunset Orange matching the artwork
+                    card_accent = (255, 160, 40)
+                    card_border_col = (230, 140, 30)
+                else:
+                    # Standard Cyan Blue
+                    card_accent = self.ACCENT_COLOR
+                    card_border_col = (
+                        int(45 + (self.ACCENT_COLOR[0] - 45) * 0.4),
+                        int(60 + (self.ACCENT_COLOR[1] - 60) * 0.4),
+                        int(85 + (self.ACCENT_COLOR[2] - 85) * 0.4),
+                    )
+    
+
+                # 1. NEON GLOW BACKPLATE
+                card_pulse = (math.sin(current_time * 0.003) + 1.0) * 0.5
+                glow_pad = 16
+                glow_w = preview_rect.width + glow_pad * 2
+                glow_h = preview_rect.height + glow_pad * 2
+                glow_surf = pygame.Surface((glow_w, glow_h), pygame.SRCALPHA)
+
+                card_glow_layers = [
+                    (14, int(15 + 12 * card_pulse)),  # Wide outer haze
+                    (8,  int(35 + 20 * card_pulse)),  # Mid aura
+                    (3,  int(75 + 35 * card_pulse)),  # Core rim bloom
+                ]
+                for pad, alpha in card_glow_layers:
+                    layer_rect = pygame.Rect(glow_pad - pad, glow_pad - pad, preview_rect.width + pad * 2, preview_rect.height + pad * 2)
+                    pygame.draw.rect(glow_surf, (*card_accent, alpha), layer_rect, border_radius=12 + pad // 2)
+
+                self.screen.blit(glow_surf, (preview_rect.x - glow_pad, preview_rect.y - glow_pad))
+
+                # 2. CARD BODY
+                card_surf = pygame.Surface((490, 520), pygame.SRCALPHA)
+                pygame.draw.rect(card_surf, (22, 22, 30, 240), (0, 0, 490, 520), border_radius=12)
+                self.screen.blit(card_surf, (740, 130))      
+                          
                 # Hero banner artwork (cleanly cropped, rounded, and bottom-faded)
                 bg_path = sel_song.get("background_path")
                 banner = self.banner_cache.get(bg_path)
@@ -446,36 +504,44 @@ class SongSelect:
                 if banner:
                     self.screen.blit(banner, (740, 130))
 
-                # Card outline
-                pygame.draw.rect(self.screen, (55, 55, 75), preview_rect, 2, border_radius=12)
+                # Glowing accent border matching the outer aura
+                border_alpha_color = (
+                    int(45 + (self.ACCENT_COLOR[0] - 45) * 0.4),
+                    int(60 + (self.ACCENT_COLOR[1] - 60) * 0.4),
+                    int(85 + (self.ACCENT_COLOR[2] - 85) * 0.4),
+                )
+                pygame.draw.rect(self.screen, card_border_col, preview_rect, 2, border_radius=12)
+                
+                # CLEAR PREVIEW TEXT AREA (prevents text overlapping/ghosting)
+                text_clear_rect = pygame.Rect(742, 370, 486, 150)
+                pygame.draw.rect(self.screen, (22, 22, 30), text_clear_rect)
 
-                # Track Details
-                p_title = self._render_fitted_text(self.font_preview_title, sel_song["title"], self.TEXT_COLOR, 440)
-                self.screen.blit(p_title, (765, 388))
+                # Sliding Marquee Title (Smooth loop without ellipses)
+                self._draw_marquee_text(self.font_preview_title, sel_song["title"], self.TEXT_COLOR, (765, 388), 440, current_time)
 
                 artist_text = sel_song.get("artist", "Unknown Artist")
                 bpm_val = sel_song.get("bpm", 130.0)
                 if "DT" in GlobalState.active_mods:
                     bpm_val *= 1.5
-                p_meta = self._render_fitted_text(self.font_preview_meta, f"Artist: {artist_text}  |  BPM: {int(bpm_val)}" + (" (DT 1.5x)" if "DT" in GlobalState.active_mods else ""), self.MUTED_COLOR, 440)
-                self.screen.blit(p_meta, (765, 430))
+                meta_str = f"Artist: {artist_text}  |  BPM: {int(bpm_val)}" + (" (DT 1.5x)" if "DT" in GlobalState.active_mods else "")
+                self._draw_marquee_text(self.font_preview_meta, meta_str, self.MUTED_COLOR, (765, 430), 440, current_time)
 
                 diff_count = len(sel_song["difficulties"])
                 p_diffs = self.font_preview_diffs.render(f"Available Difficulties: {diff_count}", True, self.ACCENT_COLOR)
                 self.screen.blit(p_diffs, (765, 468))
-
+                
                 # Display Active Mods on Preview Panel
                 mod_str = " ".join(sorted(GlobalState.active_mods)) if GlobalState.active_mods else "None"
                 mult = GlobalState.get_score_multiplier()
                 p_mods = self.font_small.render(f"Active Mods: {mod_str}  ({mult:.2f}x Multiplier)", True, self.TEXT_COLOR if GlobalState.active_mods else self.MUTED_COLOR)
                 self.screen.blit(p_mods, (765, 498))
 
-                # Interactive Quick Play Button with Vector Triangle Icon
+                # Play Button
                 play_btn_rect = pygame.Rect(765, 532, 230, 46)
                 is_play_hovered = play_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
                 if is_play_hovered:
                     curr_hovered_item = "preview_play_btn"
-
+                    
                 # Get currently active difficulty to launch
                 diff_list = sel_song.get("difficulties", [])
                 active_diff_idx = self.selected_diff_index if (0 <= self.selected_diff_index < len(diff_list) and preview_song_idx == self.selected_song_index) else 0
@@ -496,26 +562,31 @@ class SongSelect:
                 
                 # Render label text without broken unicode glyphs
                 btn_text = f"PLAY  [{active_diff['name'].upper()}]" if active_diff else "PLAY TRACK"
-                p_label = self._render_fitted_text(self.font_diff, btn_text, fg_color, 185)
                 
                 # Draw crisp geometric vector play triangle icon
-                icon_w = 11
+                icon_w = 10
                 icon_gap = 10
-                content_w = icon_w + icon_gap + p_label.get_width()
-                content_start_x = play_btn_rect.centerx - content_w // 2
+                max_label_w = 170
                 
-                tri_p1 = (content_start_x, play_btn_rect.centery - 7)
-                tri_p2 = (content_start_x, play_btn_rect.centery + 7)
-                tri_p3 = (content_start_x + icon_w, play_btn_rect.centery)
-                pygame.draw.polygon(self.screen, fg_color, [tri_p1, tri_p2, tri_p3])
+                full_lbl = self.font_diff.render(btn_text, True, fg_color)
+                visible_w = min(full_lbl.get_width(), max_label_w)
+                total_w = icon_w + icon_gap + visible_w
+                start_x = play_btn_rect.centerx - total_w // 2
                 
-                text_x = content_start_x + icon_w + icon_gap
-                text_y = play_btn_rect.centery - p_label.get_height() // 2
-                self.screen.blit(p_label, (text_x, text_y))
+                # Vector play icon
+                tri_p1 = (start_x, play_btn_rect.centery - 6)
+                tri_p2 = (start_x, play_btn_rect.centery + 6)
+                tri_p3 = (start_x + icon_w, play_btn_rect.centery)
+                pygame.draw.polygon(self.screen, fg_color, [tri_p1, tri_p2, tri_p3])    
+
+                # Button marquee
+                text_x = start_x + icon_w + icon_gap
+                text_y = play_btn_rect.centery - full_lbl.get_height() // 2
+                self._draw_marquee_text(self.font_diff, btn_text, fg_color, (text_x, text_y), max_label_w, current_time, speed_px_sec=35.0)
 
                 help_txt = self.font_small.render("Click PLAY or press ENTER / SPACE to start", True, self.MUTED_DARK)
                 self.screen.blit(help_txt, (765, 592))
-            
+                           
             # Draw header (fixed at top)
             title_surf = self.font_title.render("SELECT A TRACK", True, self.TEXT_COLOR)
             self.screen.blit(title_surf, (50, 28))
@@ -524,10 +595,31 @@ class SongSelect:
             self.screen.blit(esc_surf, (50, 78))
 
             # Brand logo badge at top right
+            brand_base_x = self.width - 310
+            brand_base_y = 28
+            brand_font = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 30)
+            surf_rhythm = brand_font.render("RHYTHM", True, self.TEXT_COLOR)
+            surf_type = brand_font.render("TYPE", True, self.ACCENT_COLOR)
+
             if self.logo_badge:
-                self.screen.blit(self.logo_badge, (self.width - 240, 28))
-                brand_text = self.font_brand.render("RhythmType", True, self.TEXT_COLOR)
-                self.screen.blit(brand_text, (self.width - 180, 36))
+                self.screen.blit(self.logo_badge, (brand_base_x, brand_base_y))
+                badge_w = self.logo_badge.get_width()
+                badge_h = self.logo_badge.get_height()
+                badge_offset_x = badge_w + 10
+                brand_y = brand_base_y + (badge_h - surf_rhythm.get_height()) // 2
+            else:
+                badge_offset_x = 0
+                brand_y = brand_base_y
+
+            brand_x = brand_base_x + badge_offset_x
+
+            shadow_rhythm = brand_font.render("RHYTHM", True, (0, 0, 0))
+            shadow_type = brand_font.render("TYPE", True, (0, 0, 0))
+            self.screen.blit(shadow_rhythm, (brand_x + 3, brand_y + 3))
+            self.screen.blit(shadow_type, (brand_x + shadow_rhythm.get_width() + 2 + 3, brand_y + 3))
+
+            self.screen.blit(surf_rhythm, (brand_x, brand_y))
+            self.screen.blit(surf_type, (brand_x + surf_rhythm.get_width() + 2, brand_y))
 
             # Clipping area for scrolling song list
             self.screen.set_clip(clip_rect)
@@ -607,7 +699,7 @@ class SongSelect:
 
             self.screen.set_clip(None)
 
-            # --- BOTTOM-LEFT MODS BAR ---
+            # BOTTOM-LEFT MODS BAR
             mods_btn_rect = pygame.Rect(50, self.height - 62, 170, 44)
             is_mods_hovered = mods_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
             if is_mods_hovered:
@@ -636,7 +728,7 @@ class SongSelect:
                     self.screen.blit(b_txt, b_txt.get_rect(center=b_rect.center))
                     badge_x += 48
 
-            # --- MOD SELECTION MODAL ---
+            # MOD SELECTION MODAL
             if self.show_mods_modal:
                 dim_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
                 dim_surf.fill((0, 0, 0, 190))
@@ -649,10 +741,13 @@ class SongSelect:
                 m_title = self.font_preview_title.render("GAME MODIFIERS", True, self.TEXT_COLOR)
                 self.screen.blit(m_title, (modal_rect.x + 30, modal_rect.y + 25))
 
+                # Dynamically right-align with a 30px padding inside the border
                 mult_val = GlobalState.get_score_multiplier()
                 m_mult = self.font_diff.render(f"Score Multiplier: {mult_val:.2f}x", True, self.ACCENT_COLOR)
-                self.screen.blit(m_mult, (modal_rect.x + modal_rect.width - 210, modal_rect.y + 30))
-
+                mult_x = modal_rect.right - 30 - m_mult.get_width()
+                mult_y = modal_rect.y + 32
+                self.screen.blit(m_mult, (mult_x, mult_y))
+                
                 pygame.draw.line(self.screen, (45, 45, 65), (modal_rect.x + 30, modal_rect.y + 70), (modal_rect.x + modal_rect.width - 30, modal_rect.y + 70), 1)
 
                 # Render Mod Card Items
