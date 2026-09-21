@@ -1,3 +1,4 @@
+import os
 import pygame
 from global_state import GlobalState, get_fps_target
 
@@ -26,6 +27,30 @@ class SongSelect:
         self.scroll_y = -max(0.0, self.selected_song_index * 75.0 - 100.0)
         self.target_scroll_y = self.scroll_y
 
+        # Load logo badge for header
+        self.logo_badge = None
+        if os.path.exists(GlobalState.LOGO_PATH):
+            try:
+                raw_logo = pygame.image.load(GlobalState.LOGO_PATH).convert_alpha()
+                self.logo_badge = pygame.transform.smoothscale(raw_logo, (48, 48))
+            except Exception:
+                pass
+
+        # Hover and click sounds
+        self.hover_sound = None
+        self.click_sound = None
+        self.hovered_item = None
+        if os.path.exists(GlobalState.HOVER_SOUND_PATH):
+            try:
+                self.hover_sound = pygame.mixer.Sound(GlobalState.HOVER_SOUND_PATH)
+            except Exception:
+                pass
+        if os.path.exists(GlobalState.CLICK_SOUND_PATH):
+            try:
+                self.click_sound = pygame.mixer.Sound(GlobalState.CLICK_SOUND_PATH)
+            except Exception:
+                pass
+
         # Cache preview background art
         self.bg_cache = {}
         for song in GlobalState.song_list:
@@ -36,6 +61,22 @@ class SongSelect:
                     self.bg_cache[bg_path] = raw
                 except Exception:
                     pass
+
+    def _play_hover(self):
+        if self.hover_sound:
+            try:
+                self.hover_sound.set_volume(GlobalState.sfx_volume)
+                self.hover_sound.play()
+            except Exception:
+                pass
+
+    def _play_click(self):
+        if self.click_sound:
+            try:
+                self.click_sound.set_volume(GlobalState.sfx_volume)
+                self.click_sound.play()
+            except Exception:
+                pass
 
     def run(self):
         clock = pygame.time.Clock()
@@ -128,17 +169,26 @@ class SongSelect:
             esc_surf = self.font_small.render("Press ESC to return  |  Scroll with Mouse Wheel", True, self.MUTED_COLOR)
             self.screen.blit(esc_surf, (50, 75))
 
+            # Brand logo badge at top right
+            if self.logo_badge:
+                self.screen.blit(self.logo_badge, (self.width - 240, 30))
+                brand_text = self.font_song.render("RhythmType", True, self.TEXT_COLOR)
+                self.screen.blit(brand_text, (self.width - 180, 38))
+
             # Clipping area for scrolling song list
             clip_rect = pygame.Rect(0, 120, 720, self.height - 130)
             self.screen.set_clip(clip_rect)
 
             y_offset = 130 + int(self.scroll_y)
             x_offset = 50
+            curr_hovered_item = None
             
             # Dynamic generation of the Accordion list
             for i, song in enumerate(GlobalState.song_list):
                 song_rect = pygame.Rect(x_offset, y_offset, 650, 65)
                 is_song_hovered = song_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos)
+                if is_song_hovered:
+                    curr_hovered_item = f"song_{i}"
                 
                 # Draw Main Song Plate
                 plate_color = self.HOVER_COLOR if is_song_hovered else self.SONG_BG
@@ -153,6 +203,7 @@ class SongSelect:
                 self.screen.blit(diff_badge, (x_offset + 20, y_offset + 40))
                 
                 if mouse_clicked and is_song_hovered:
+                    self._play_click()
                     self.selected_song_index = i
                     if self.expanded_song_index == i:
                         self.expanded_song_index = -1
@@ -166,6 +217,8 @@ class SongSelect:
                     for diff in song["difficulties"]:
                         diff_rect = pygame.Rect(x_offset + 45, y_offset, 605, 44)
                         is_diff_hovered = diff_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos)
+                        if is_diff_hovered:
+                            curr_hovered_item = f"diff_{diff['name']}_{y_offset}"
                         
                         d_color = self.HOVER_COLOR if is_diff_hovered else self.DIFF_BG
                         pygame.draw.rect(self.screen, d_color, diff_rect, border_radius=6)
@@ -175,6 +228,7 @@ class SongSelect:
                         
                         # Handle selection and payload binding
                         if mouse_clicked and is_diff_hovered:
+                            self._play_click()
                             GlobalState.selected_song_data = {
                                 "title": song["title"],
                                 "artist": song.get("artist", ""),
@@ -190,6 +244,11 @@ class SongSelect:
                             
                         y_offset += 52
                     y_offset += 10
+
+            if curr_hovered_item != self.hovered_item:
+                if curr_hovered_item is not None:
+                    self._play_hover()
+                self.hovered_item = curr_hovered_item
 
             self.screen.set_clip(None)
             pygame.display.flip()

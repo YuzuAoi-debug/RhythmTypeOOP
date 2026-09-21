@@ -1,6 +1,7 @@
 import sys
 import json
 from pathlib import Path
+from typing import List, Dict, Any
 
 # Base project root directory
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -48,8 +49,18 @@ class GlobalState:
     # Audio file paths
     HITSOUND_PATH = get_asset_path("gameplay_audio/hitsound.wav")
     MISS_SOUND_PATH = get_asset_path("gameplay_audio/miss-sound.wav")
+    HOVER_SOUND_PATH = get_asset_path("gameplay_audio/hover.mp3")
+    CLICK_SOUND_PATH = get_asset_path("gameplay_audio/click.mp3")
+    
+    # Image file paths
+    LOGO_PATH = get_asset_path("assets/images/logo.png")
+    ICON_PATH = get_asset_path("assets/images/icon.png")
     
     MUSIC_DIR = BASE_DIR / "assets" / "audio" / "music"
+
+    @staticmethod
+    def get_asset_path(rel_path: str) -> str:
+        return get_asset_path(rel_path)
 
     # Active song indices for SongSelect navigation
     selected_song_index: int = 0
@@ -59,7 +70,7 @@ class GlobalState:
     selected_song_data = {}
     
     # Master Song Library Database with all difficulties & background assets
-    song_list = [
+    song_list: List[Dict[str, Any]] = [
         {
             "title": "Fennel - confess",
             "artist": "Fennel",

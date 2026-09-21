@@ -30,6 +30,15 @@ def main(file_to_import: Optional[str] = None):
         pass
 
     WIDTH, HEIGHT = 1280, 720
+
+    # Set window / taskbar icon
+    if os.path.exists(GlobalState.ICON_PATH):
+        try:
+            icon_surf = pygame.image.load(GlobalState.ICON_PATH)
+            pygame.display.set_icon(icon_surf)
+        except Exception:
+            pass
+
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("RhythmType - Pure Python Edition")
     

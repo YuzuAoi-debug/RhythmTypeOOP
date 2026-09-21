@@ -1,4 +1,7 @@
+import os
+import math
 import random
+from typing import Optional
 import pygame
 from global_state import GlobalState, get_fps_target
 
@@ -26,6 +29,17 @@ class MainMenu:
         self.options_open = False
         self.active_slider = None  # 'music', 'sfx', 'offset'
         
+        # Load logo assets
+        self.logo_hero = None
+        self.logo_small = None
+        if os.path.exists(GlobalState.LOGO_PATH):
+            try:
+                raw_logo = pygame.image.load(GlobalState.LOGO_PATH).convert_alpha()
+                self.logo_hero = pygame.transform.smoothscale(raw_logo, (340, 340))
+                self.logo_small = pygame.transform.smoothscale(raw_logo, (76, 76))
+            except Exception:
+                pass
+        
         # Temporary settings buffer for options menu
         self.temp_speed = GlobalState.note_speed
         self.temp_music_volume = GlobalState.music_volume
@@ -45,6 +59,23 @@ class MainMenu:
         except Exception:
             pass
 
+        # Hover sound effect and state tracker
+        self.hover_sound = None
+        self.hovered_btn = None
+        if os.path.exists(GlobalState.HOVER_SOUND_PATH):
+            try:
+                self.hover_sound = pygame.mixer.Sound(GlobalState.HOVER_SOUND_PATH)
+            except Exception:
+                pass
+
+        # Click sound effect
+        self.click_sound = None
+        if os.path.exists(GlobalState.CLICK_SOUND_PATH):
+            try:
+                self.click_sound = pygame.mixer.Sound(GlobalState.CLICK_SOUND_PATH)
+            except Exception:
+                pass
+
         # Track end of song for playlist looping
         self.SONG_END = pygame.USEREVENT + 1
         pygame.mixer.music.set_endevent(self.SONG_END)
@@ -53,9 +84,25 @@ class MainMenu:
         else:
             self.now_playing = "Now Playing ♫ : Menu Track"
             if GlobalState.song_list:
-                self._load_bg(GlobalState.song_list[0].get("background_path", ""))
+                self._load_bg(str(GlobalState.song_list[0].get("background_path") or ""))
 
-    def _load_bg(self, path: str):
+    def _play_hover(self):
+        if self.hover_sound:
+            try:
+                self.hover_sound.set_volume(GlobalState.sfx_volume)
+                self.hover_sound.play()
+            except Exception:
+                pass
+
+    def _play_click(self):
+        if self.click_sound:
+            try:
+                self.click_sound.set_volume(GlobalState.sfx_volume)
+                self.click_sound.play()
+            except Exception:
+                pass
+
+    def _load_bg(self, path: Optional[str]):
         if not path:
             self.current_bg = None
             return
@@ -82,7 +129,7 @@ class MainMenu:
         if self.playlist:
             song = self.playlist.pop(0)
             self.now_playing = f"Now Playing ♫ : {song['title']}"
-            self._load_bg(song.get("background_path", ""))
+            self._load_bg(str(song.get("background_path") or ""))
             try:
                 pygame.mixer.music.load(song["audio_path"])
                 pygame.mixer.music.set_volume(GlobalState.music_volume)
@@ -167,6 +214,7 @@ class MainMenu:
                         if self.options_open:
                             self._save_options()
                             self.options_open = False
+                            self.hovered_btn = None
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mouse_clicked = True
                     if self.options_open:
@@ -205,14 +253,45 @@ class MainMenu:
                 self.screen.fill(self.BG_COLOR)
 
             # Left Branding & Track Info
-            title_surf = self.font_title.render("RHYTHMTYPE", True, self.TEXT_COLOR)
-            self.screen.blit(title_surf, (100, 100))
-            
-            sub_surf = self.font_small.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
-            self.screen.blit(sub_surf, (105, 175))
-            
-            now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
-            self.screen.blit(now_playing_surf, (105, 205))
+            if self.logo_small:
+                self.screen.blit(self.logo_small, (100, 75))
+                title_surf = self.font_title.render("RHYTHMTYPE", True, self.TEXT_COLOR)
+                self.screen.blit(title_surf, (190, 76))
+                
+                sub_surf = self.font_small.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
+                self.screen.blit(sub_surf, (194, 142))
+                
+                now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
+                self.screen.blit(now_playing_surf, (100, 185))
+            else:
+                title_surf = self.font_title.render("RHYTHMTYPE", True, self.TEXT_COLOR)
+                self.screen.blit(title_surf, (100, 100))
+                
+                sub_surf = self.font_small.render("PURE PYTHON RHYTHM-TYPING HYBRID", True, self.MUTED_COLOR)
+                self.screen.blit(sub_surf, (105, 175))
+                
+                now_playing_surf = self.font_small.render(self.now_playing, True, self.ACCENT_COLOR)
+                self.screen.blit(now_playing_surf, (105, 205))
+
+            # Right Hero Showcase
+            if self.logo_hero and not self.options_open:
+                hero_x = self.width - 460
+                float_offset = math.sin(pygame.time.get_ticks() * 0.002) * 8
+                hero_y = int(self.height // 2 - 190 + float_offset)
+                
+                # Glowing backplate
+                glow_rect = pygame.Rect(hero_x - 10, hero_y - 10, 360, 360)
+                glow_surf = pygame.Surface((glow_rect.width, glow_rect.height), pygame.SRCALPHA)
+                pygame.draw.rect(glow_surf, (0, 229, 255, 30), (0, 0, glow_rect.width, glow_rect.height), border_radius=24)
+                self.screen.blit(glow_surf, glow_rect.topleft)
+                
+                # Hero logo image
+                self.screen.blit(self.logo_hero, (hero_x, hero_y))
+                
+                # Tagline underneath
+                tagline = self.font_small.render("RHYTHM & MONKEYTYPE HYBRID", True, self.MUTED_COLOR)
+                tagline_rect = tagline.get_rect(center=(hero_x + 170, hero_y + 365))
+                self.screen.blit(tagline, tagline_rect)
 
             if self.options_open:
                 # Dim background
@@ -252,34 +331,77 @@ class MainMenu:
                 self.draw_button(fps_display, fps_rect, fps_rect.collidepoint(mouse_pos), small=True)
                 self.draw_button("Save & Close (ESC)", close_opt_rect, close_opt_rect.collidepoint(mouse_pos), small=True)
                 
+                # Hover tracking for options menu buttons
+                curr_opt_hover = None
+                if speed_minus_hundredth.collidepoint(mouse_pos):
+                    curr_opt_hover = "spd_-001"
+                elif speed_minus_tenth.collidepoint(mouse_pos):
+                    curr_opt_hover = "spd_-01"
+                elif speed_plus_hundredth.collidepoint(mouse_pos):
+                    curr_opt_hover = "spd_+001"
+                elif speed_plus_tenth.collidepoint(mouse_pos):
+                    curr_opt_hover = "spd_+01"
+                elif fps_rect.collidepoint(mouse_pos):
+                    curr_opt_hover = "fps"
+                elif close_opt_rect.collidepoint(mouse_pos):
+                    curr_opt_hover = "close"
+
+                if curr_opt_hover != self.hovered_btn:
+                    if curr_opt_hover is not None:
+                        self._play_hover()
+                    self.hovered_btn = curr_opt_hover
+
                 if mouse_clicked:
                     if speed_minus_hundredth.collidepoint(mouse_pos):
+                        self._play_click()
                         self.temp_speed = max(0.01, round(self.temp_speed - 0.01, 2))
                     elif speed_minus_tenth.collidepoint(mouse_pos):
+                        self._play_click()
                         self.temp_speed = max(0.01, round(self.temp_speed - 0.1, 2))
                     elif speed_plus_hundredth.collidepoint(mouse_pos):
+                        self._play_click()
                         self.temp_speed = min(20.0, round(self.temp_speed + 0.01, 2))
                     elif speed_plus_tenth.collidepoint(mouse_pos):
+                        self._play_click()
                         self.temp_speed = min(20.0, round(self.temp_speed + 0.1, 2))
                     elif fps_rect.collidepoint(mouse_pos):
+                        self._play_click()
                         current_index = self.fps_modes.index(self.temp_fps_mode)
                         self.temp_fps_mode = self.fps_modes[(current_index + 1) % len(self.fps_modes)]
                     elif close_opt_rect.collidepoint(mouse_pos):
+                        self._play_click()
                         self._save_options()
                         self.options_open = False
+                        self.hovered_btn = None
             else:
                 play_hover = play_rect.collidepoint(mouse_pos)
                 opt_hover = options_rect.collidepoint(mouse_pos)
                 exit_hover = exit_rect.collidepoint(mouse_pos)
                 
+                # Hover tracking for main menu buttons
+                curr_hover = None
+                if play_hover:
+                    curr_hover = "play"
+                elif opt_hover:
+                    curr_hover = "options"
+                elif exit_hover:
+                    curr_hover = "exit"
+
+                if curr_hover != self.hovered_btn:
+                    if curr_hover is not None:
+                        self._play_hover()
+                    self.hovered_btn = curr_hover
+
                 self.draw_button("PLAY", play_rect, play_hover)
                 self.draw_button("OPTIONS", options_rect, opt_hover)
                 self.draw_button("EXIT", exit_rect, exit_hover)
                 
                 if mouse_clicked:
                     if play_hover:
+                        self._play_click()
                         return "song_select"
                     elif opt_hover:
+                        self._play_click()
                         self.temp_speed = GlobalState.note_speed
                         self.temp_music_volume = GlobalState.music_volume
                         self.temp_sfx_volume = GlobalState.sfx_volume
@@ -287,7 +409,9 @@ class MainMenu:
                         self.temp_bg_brightness = GlobalState.bg_brightness
                         self.temp_fps_mode = GlobalState.fps_mode
                         self.options_open = True
+                        self.hovered_btn = None
                     elif exit_hover:
+                        self._play_click()
                         return "quit"
 
             pygame.display.flip()
