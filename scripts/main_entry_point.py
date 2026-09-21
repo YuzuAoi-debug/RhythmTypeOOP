@@ -52,16 +52,24 @@ def main(file_to_import: Optional[str] = None):
             current_state = "song_select"
     
     running = True
+    last_frame = None
+    
     while running:
         if current_state == "menu":
             menu = MainMenu(screen)
-            current_state = menu.run()
+            next_state = menu.run(last_frame)
+            last_frame = screen.copy()
+            current_state = next_state
         elif current_state == "song_select":
             song_select = SongSelect(screen)
-            current_state = song_select.run()
+            next_state = song_select.run(last_frame)
+            last_frame = screen.copy()
+            current_state = next_state
         elif current_state == "play":
             game_manager = GameManager(screen)
-            current_state = game_manager.run()
+            next_state = game_manager.run(last_frame)
+            last_frame = screen.copy()
+            current_state = next_state
         elif current_state == "retry":
             current_state = "play"
         elif current_state == "quit":

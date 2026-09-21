@@ -1,6 +1,7 @@
 import os
 import wave
 import math
+import random
 import pygame
 from global_state import GlobalState, get_fps_target
 from conductor import Conductor
@@ -20,13 +21,23 @@ class GameManager:
         self.MUTED_COLOR = (100, 100, 130)
         self.GREEN_COLOR = (0, 255, 180)
         
-        # Fonts
-        self.font_large = pygame.font.SysFont("Arial", 44, bold=True)
-        self.font_med = pygame.font.SysFont("Arial", 28, bold=True)
-        self.font_small = pygame.font.SysFont("Arial", 16)
-        self.font_guide = pygame.font.SysFont("Arial", 22, bold=True)
-        self.font_score = pygame.font.SysFont("Arial", 48, bold=True)
-        self.font_combo = pygame.font.SysFont("Arial", 52, bold=True)
+        # Fonts (Matching Main Menu Theme)
+        from global_state import get_asset_path
+        try:
+            font_path = get_asset_path("assets/font/RETROTECH.ttf")
+            self.font_large = pygame.font.Font(font_path, 44)
+            self.font_med = pygame.font.Font(font_path, 28)
+            self.font_small = pygame.font.Font(font_path, 18)
+            self.font_guide = pygame.font.Font(font_path, 22)
+            self.font_score = pygame.font.Font(font_path, 48)
+            self.font_combo = pygame.font.Font(font_path, 52)
+        except Exception:
+            self.font_large = pygame.font.SysFont("Arial", 44, bold=True)
+            self.font_med = pygame.font.SysFont("Arial", 28, bold=True)
+            self.font_small = pygame.font.SysFont("Arial", 16)
+            self.font_guide = pygame.font.SysFont("Arial", 22, bold=True)
+            self.font_score = pygame.font.SysFont("Arial", 48, bold=True)
+            self.font_combo = pygame.font.SysFont("Arial", 52, bold=True)
         
         # Gameplay Constants
         is_hr = "HR" in GlobalState.active_mods
@@ -89,11 +100,13 @@ class GameManager:
         surface = font.render(text, True, color)
         self.screen.blit(surface, surface.get_rect(center=(self.width // 2, y)))
 
-    def _draw_button(self, text, rect, hovered):
+    def _draw_button(self, text, rect, hovered, accent_color=None):
+        if accent_color is None:
+            accent_color = self.ACCENT_COLOR
         color = (45, 45, 62) if hovered else (26, 26, 36)
         pygame.draw.rect(self.screen, color, rect, border_radius=8)
-        pygame.draw.rect(self.screen, self.ACCENT_COLOR if hovered else (65, 65, 85), rect, 2, border_radius=8)
-        surface = self.font_small.render(text, True, self.ACCENT_COLOR if hovered else self.TEXT_COLOR)
+        pygame.draw.rect(self.screen, accent_color if hovered else (65, 65, 85), rect, 2, border_radius=8)
+        surface = self.font_small.render(text, True, accent_color if hovered else self.TEXT_COLOR)
         self.screen.blit(surface, surface.get_rect(center=rect.center))
 
     def _pause_screen(self, conductor, clock):
@@ -103,10 +116,12 @@ class GameManager:
         retry_rect = pygame.Rect(panel_rect.x + 195, panel_rect.y + 240, 130, 50)
         menu_rect = pygame.Rect(panel_rect.x + 350, panel_rect.y + 240, 130, 50)
 
-        # Snapshot background frame once so repeated frames do NOT compound into pitch black
         frozen_frame = self.screen.copy()
         dim_overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         dim_overlay.fill((0, 0, 0, 175))
+        
+        time_start = pygame.time.get_ticks()
+        fade_duration = 300.0
 
         while True:
             mouse_pos = pygame.mouse.get_pos()
@@ -136,28 +151,81 @@ class GameManager:
                     conductor.stop()
                     return "menu"
 
-            # Render frozen gameplay frame with single dimming overlay
+            time_ms = pygame.time.get_ticks() - time_start
+            fade_progress = min(1.0, time_ms / fade_duration)
+            p = 1.0 - (1.0 - fade_progress)**5
+            
             self.screen.blit(frozen_frame, (0, 0))
-            self.screen.blit(dim_overlay, (0, 0))
+            
+            current_overlay = dim_overlay.copy()
+            current_overlay.set_alpha(int(175 * p))
+            self.screen.blit(current_overlay, (0, 0))
+            
+            y_offset = int(20 * (1.0 - p))
+            panel_rect_anim = panel_rect.move(0, y_offset)
+            resume_rect_anim = resume_rect.move(0, y_offset)
+            retry_rect_anim = retry_rect.move(0, y_offset)
+            menu_rect_anim = menu_rect.move(0, y_offset)
 
-            pygame.draw.rect(self.screen, (22, 22, 30), panel_rect, border_radius=12)
-            pygame.draw.rect(self.screen, (50, 50, 70), panel_rect, 2, border_radius=12)
+            panel_surf = pygame.Surface((panel_rect_anim.width, panel_rect_anim.height), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surf, (22, 22, 30, int(255*p)), panel_surf.get_rect(), border_radius=12)
+            pygame.draw.rect(panel_surf, (50, 50, 70, int(255*p)), panel_surf.get_rect(), 2, border_radius=12)
+            self.screen.blit(panel_surf, panel_rect_anim.topleft)
 
-            self._draw_centered("PAUSED", self.font_large, self.TEXT_COLOR, self.height // 2 - 90)
-            self._draw_centered("ESC: Resume   |   CTRL + R: Restart Track", self.font_small, self.MUTED_COLOR, self.height // 2 - 30)
-            self._draw_centered("Use buttons below to navigate", self.font_small, self.MUTED_COLOR, self.height // 2 + 10)
+            def draw_fade_centered(text, font, color, y):
+                surf = font.render(text, True, color)
+                surf.set_alpha(int(255 * p))
+                self.screen.blit(surf, surf.get_rect(center=(self.width // 2, y + y_offset)))
+                
+            draw_fade_centered("PAUSED", self.font_large, self.TEXT_COLOR, self.height // 2 - 90)
+            draw_fade_centered("ESC: Resume   |   CTRL + R: Restart Track", self.font_small, self.MUTED_COLOR, self.height // 2 - 30)
+            draw_fade_centered("Use buttons below to navigate", self.font_small, self.MUTED_COLOR, self.height // 2 + 10)
 
-            self._draw_button("RESUME", resume_rect, resume_rect.collidepoint(mouse_pos))
-            self._draw_button("RETRY", retry_rect, retry_rect.collidepoint(mouse_pos))
-            self._draw_button("MENU", menu_rect, menu_rect.collidepoint(mouse_pos))
+            if p > 0.9:
+                self._draw_button("RESUME", resume_rect_anim, resume_rect_anim.collidepoint(mouse_pos))
+                self._draw_button("RETRY", retry_rect_anim, retry_rect_anim.collidepoint(mouse_pos))
+                self._draw_button("MENU", menu_rect_anim, menu_rect_anim.collidepoint(mouse_pos))
 
             pygame.display.flip()
             clock.tick(30)
 
-    def _show_fail_screen(self, score, max_combo, clock):
+    def _show_fail_screen(self, score, max_combo, clock, last_frame=None):
         pygame.mixer.music.stop()
-        retry_rect = pygame.Rect(self.width // 2 - 160, 420, 140, 48)
-        menu_rect = pygame.Rect(self.width // 2 + 20, 420, 140, 48)
+        retry_rect = pygame.Rect(self.width // 2 - 160, 390, 140, 48)
+        menu_rect = pygame.Rect(self.width // 2 + 20, 390, 140, 48)
+
+        # Pre-render a menacing dark red radial vignette
+        vignette_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        max_radius = int(math.hypot(self.width/2, self.height/2))
+        for r in range(max_radius, 0, -15):
+            alpha = max(0, min(150, int(150 * (r / max_radius))))
+            pygame.draw.circle(vignette_surf, (15, 0, 5, alpha), (self.width // 2, self.height // 2), r)
+
+        # Pre-render soft edge gradient for the top wave to remove the hard vector edge
+        gradient_h = 400
+        wave_gradient = pygame.Surface((1, gradient_h), pygame.SRCALPHA)
+        for y in range(gradient_h):
+            # Ease-in alpha for a very soft leading edge
+            alpha_ratio = y / gradient_h
+            alpha = int(255 * (alpha_ratio ** 2))
+            wave_gradient.set_at((0, y), (20, 2, 4, alpha))
+        wave_gradient = pygame.transform.scale(wave_gradient, (self.width, gradient_h))
+
+        # Initialize floating red pixels
+        embers = []
+        for _ in range(80):
+            embers.append({
+                "x": random.uniform(0, self.width),
+                "y": random.uniform(0, self.height),
+                "vx": random.uniform(-20, 20),
+                "vy": random.uniform(-80, -20),
+                "size": random.randint(2, 6),
+                "pulse": random.uniform(0, math.pi * 2)
+            })
+
+        time_start = pygame.time.get_ticks()
+        fade_duration = 2000.0
+        dt = 1.0 / 30.0
 
         while True:
             mouse_pos = pygame.mouse.get_pos()
@@ -170,7 +238,7 @@ class GameManager:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r and (event.mod & pygame.KMOD_CTRL):
                         return "retry"
-                    if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                    if event.key in (pygame.K_ESCAPE, pygame.K_m, pygame.K_RETURN):
                         return "menu"
 
             if mouse_clicked:
@@ -179,20 +247,123 @@ class GameManager:
                 if menu_rect.collidepoint(mouse_pos):
                     return "menu"
 
-            self.screen.fill(self.BG_COLOR)
-            self._draw_centered("FAILED", self.font_large, (255, 70, 70), 160)
-            self._draw_centered(f"Score  {int(score):06d}", self.font_med, self.TEXT_COLOR, 250)
-            self._draw_centered(f"Max Combo  {max_combo}x", self.font_med, self.TEXT_COLOR, 300)
-            self._draw_centered("Press CTRL+R or click buttons below", self.font_small, self.MUTED_COLOR, 365)
+            time_ms = pygame.time.get_ticks() - time_start
+            fade_progress = min(1.0, time_ms / fade_duration)
+            
+            if fade_progress < 0.4:
+                if last_frame:
+                    self.screen.blit(last_frame, (0, 0))
+                else:
+                    self.screen.fill((10, 4, 6))
+                
+                # Surge up: from off-screen to covering screen
+                p = fade_progress / 0.4
+                p = 1.0 - (1.0 - p)**3 # Ease out
+                start_offset = 350
+                end_offset = -(self.height - 250) - 150
+                wave_y_offset = start_offset + (end_offset - start_offset) * p
+            else:
+                # Dark Void Background
+                self.screen.fill((10, 4, 6))
+                
+                # Settle down: from covering screen to normal resting position
+                p = (fade_progress - 0.4) / 0.6
+                p = 1.0 - (1.0 - p)**3 # Ease out
+                start_offset = -(self.height - 250) - 150
+                end_offset = 0
+                wave_y_offset = start_offset + (end_offset - start_offset) * p
+            
+            # Procedural Fluid Sine Waves (Multi-octave for organic liquid feel)
+            for i in range(5):
+                wave_pts = [(0, self.height)]
+                base_y = self.height - 250 + i * 60 + wave_y_offset
+                
+                if i == 0:
+                    # Draw the soft gradient above the highest wave to eliminate the hard "upper edge"
+                    self.screen.blit(wave_gradient, (0, int(base_y - gradient_h + 30)))
+                    
+                speed = 0.001 + i * 0.0002
+                freq = 0.0015 + i * 0.0005
+                amp = 20 + i * 10
+                for x in range(0, self.width + 20, 10):
+                    # Combine 3 sine waves for a turbulent, highly fluid curve
+                    y = base_y                         + math.sin(time_ms * speed + x * freq) * amp                         + math.cos(time_ms * speed * 1.4 + x * freq * 2.3 + i) * (amp * 0.4)                         + math.sin(time_ms * speed * 0.8 + x * freq * 0.4 + i*2) * (amp * 0.2)
+                    wave_pts.append((x, y))
+                wave_pts.append((self.width, self.height))
+                pygame.draw.polygon(self.screen, (20 + i*10, 2 + i*2, 4 + i*3), wave_pts)
 
-            self._draw_button("RETRY", retry_rect, retry_rect.collidepoint(mouse_pos))
-            self._draw_button("MENU", menu_rect, menu_rect.collidepoint(mouse_pos))
+            # Only show UI elements after the wave has crashed down (fade_progress > 0.4)
+            if fade_progress > 0.4:
+                ui_alpha_progress = min(1.0, (fade_progress - 0.4) / 0.6)
+                
+                # Pulsing ambient vignette
+                pulse = (math.sin(time_ms * 0.003) + 1.0) * 0.5
+                vignette_surf.set_alpha(int((100 + 55 * pulse) * ui_alpha_progress))
+                self.screen.blit(vignette_surf, (0, 0))
+
+                # Update & Draw Floating Red Pixels
+                for ember in embers:
+                    ember["x"] += ember["vx"] * dt
+                    ember["y"] += ember["vy"] * dt
+                    if ember["y"] < -20:
+                        ember["y"] = self.height + 20
+                        ember["x"] = random.uniform(0, self.width)
+                    
+                    e_pulse = (math.sin(time_ms * 0.005 + ember["pulse"]) + 1.0) * 0.5
+                    e_alpha = int((100 + 155 * e_pulse) * ui_alpha_progress)
+                    e_size = int(ember["size"])
+                    
+                    ember_surf = pygame.Surface((e_size, e_size), pygame.SRCALPHA)
+                    ember_surf.fill((255, 40, 40, e_alpha))
+                    self.screen.blit(ember_surf, (int(ember["x"]), int(ember["y"])))
+
+                # Ken Burns subtle panning
+                pan_offset_y = int(math.sin(time_ms * 0.001) * 15)
+
+                # Glitched FAILED Text
+                glitch_x = int(math.sin(time_ms * 0.05) * 4 * pulse)
+                glitch_y = int(math.cos(time_ms * 0.07) * 3 * pulse)
+                
+                fail_text = "TRACK FAILED"
+                red_surf = self.font_combo.render(fail_text, True, (255, 20, 20))
+                blue_surf = self.font_combo.render(fail_text, True, (0, 255, 255))
+                main_surf = self.font_combo.render(fail_text, True, (255, 230, 230))
+                
+                red_surf.set_alpha(int(255 * ui_alpha_progress))
+                blue_surf.set_alpha(int(255 * ui_alpha_progress))
+                main_surf.set_alpha(int(255 * ui_alpha_progress))
+                
+                center_x, center_y = self.width // 2, 130 + pan_offset_y
+                self.screen.blit(red_surf, red_surf.get_rect(center=(center_x + glitch_x, center_y + glitch_y)))
+                self.screen.blit(blue_surf, blue_surf.get_rect(center=(center_x - glitch_x, center_y - glitch_y)))
+                self.screen.blit(main_surf, main_surf.get_rect(center=(center_x, center_y)))
+
+                score_surf = self.font_med.render(f"Score  {int(score):06d}", True, (200, 180, 180))
+                combo_surf = self.font_med.render(f"Max Combo  {max_combo}x", True, (200, 180, 180))
+                inst_surf = self.font_small.render("Press CTRL+R or click buttons below", True, (150, 100, 100))
+                
+                score_surf.set_alpha(int(255 * ui_alpha_progress))
+                combo_surf.set_alpha(int(255 * ui_alpha_progress))
+                inst_surf.set_alpha(int(255 * ui_alpha_progress))
+                
+                self.screen.blit(score_surf, score_surf.get_rect(center=(center_x, 260)))
+                self.screen.blit(combo_surf, combo_surf.get_rect(center=(center_x, 300)))
+                self.screen.blit(inst_surf, inst_surf.get_rect(center=(center_x, 350)))
+
+                red_accent = (255, 60, 80)
+                if ui_alpha_progress > 0.9:
+                    self._draw_button("RETRY", retry_rect, retry_rect.collidepoint(mouse_pos), red_accent)
+                    self._draw_button("MENU", menu_rect, menu_rect.collidepoint(mouse_pos), red_accent)
 
             pygame.display.flip()
-            clock.tick(30)
+            dt = clock.tick(30) / 1000.0
 
-    def _show_results(self, score, max_combo, timing_errors, counts, ur_value, clock):
+    def _show_results(self, score, max_combo, timing_errors, counts, ur_value, clock, last_frame=None):
         pygame.mixer.music.stop()
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        time_start = pygame.time.get_ticks()
+        fade_duration = 600.0
         c300 = counts["perfect"]
         c100 = counts["great"]
         c50 = counts["good"]
@@ -256,6 +427,59 @@ class GameManager:
             self._draw_button("RETRY", retry_rect, retry_rect.collidepoint(mouse_pos))
             self._draw_button("MENU", menu_rect, menu_rect.collidepoint(mouse_pos))
 
+            if fade_progress < 1.0:
+                fade_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                fade_surf.fill((0, 0, 0, int(255 * (1.0 - fade_progress))))
+                self.screen.blit(fade_surf, (0, 0))
+
+            if last_frame:
+                fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
+                if fade_progress < 1.0:
+                    if not hasattr(self, 'results_trans') or self.results_trans['time_start'] != time_start:
+                        mx, my = pygame.mouse.get_pos()
+                        trans_tiles = []
+                        for y in range(0, self.height, 40):
+                            for x in range(0, self.width, 40):
+                                cx = x + 20
+                                cy = y + 20
+                                dist = math.hypot(cx - mx, cy - my)
+                                trans_tiles.append({
+                                    'x': x, 'y': y, 'dist': dist,
+                                    'vx': (cx - mx) / (dist + 1) * random.uniform(200, 900),
+                                    'vy': (cy - my) / (dist + 1) * random.uniform(200, 900),
+                                    'delay': dist / 1800.0
+                                })
+                        self.results_trans = {'tiles': trans_tiles, 'mx': mx, 'my': my, 'time_start': time_start}
+
+                    for t in self.results_trans['tiles']:
+                        local_p = (fade_progress - t['delay']) / 0.4
+                        if local_p <= 0:
+                            self.screen.blit(last_frame, (t['x'], t['y']), pygame.Rect(t['x'], t['y'], 40, 40))
+                        elif local_p < 1:
+                            ease_p = 1.0 - (1.0 - local_p)**3
+                            nx = t['x'] + t['vx'] * ease_p
+                            ny = t['y'] + t['vy'] * ease_p
+                            s = int(40 * (1.0 - ease_p))
+                            if s > 0:
+                                self.screen.blit(last_frame, (int(nx + 20 - s/2), int(ny + 20 - s/2)), pygame.Rect(t['x'], t['y'], s, s))
+
+                    shock_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                    shockwave_radius = fade_progress * 2000
+                    shockwave_thickness = int(max(1, 200 * (1.0 - fade_progress)))
+                    if shockwave_radius > 0:
+                        pygame.draw.circle(shock_surf, (0, 229, 255, int(255 * (1.0 - fade_progress))), (self.results_trans['mx'], self.results_trans['my']), int(shockwave_radius), shockwave_thickness)
+                        for _ in range(40):
+                            angle = random.uniform(0, math.pi * 2)
+                            r_offset = random.uniform(-shockwave_thickness, shockwave_thickness * 1.5)
+                            px = self.results_trans['mx'] + math.cos(angle) * (shockwave_radius + r_offset)
+                            py = self.results_trans['my'] + math.sin(angle) * (shockwave_radius + r_offset)
+                            psize = random.randint(2, 8)
+                            palpha = int(255 * (1.0 - fade_progress) * random.uniform(0.5, 1.0))
+                            pygame.draw.circle(shock_surf, (0, 255, 255, palpha), (int(px), int(py)), psize)
+                    self.screen.blit(shock_surf, (0, 0))
+                else:
+                    last_frame = None
+
             pygame.display.flip()
             clock.tick(30)
 
@@ -290,7 +514,7 @@ class GameManager:
             print(f"Warning: Failed to generate DT audio: {e}")
             return audio_path
 
-    def run(self):
+    def run(self, last_frame=None):
         if not pygame.mixer.get_init():
             pygame.mixer.init()
 
@@ -376,6 +600,9 @@ class GameManager:
         feedback_max_time = 0.35
         feedback_y_offset = 0.0
         hit_ripples = []
+        particles = []
+        display_hp = float(hp)
+        combo_pop_timer = 0.0
 
         # O(1) Running Unstable Rate (UR) tracking
         timing_errors = []
@@ -383,7 +610,6 @@ class GameManager:
         err_sum = 0.0
         err_sum_sq = 0.0
         ur_value = 0.0
-        ur_text_surf = self.font_small.render(f"UR: 0.0  |  MAX COMBO: 0", True, self.MUTED_COLOR)
 
         # Monkeytype HUD cached render surfaces
         cached_hud_idx = -1
@@ -403,6 +629,7 @@ class GameManager:
             pygame.K_HOME, pygame.K_END, pygame.K_PAGEUP, pygame.K_PAGEDOWN
         }
 
+        time_start = pygame.time.get_ticks()
         running = True
         while running:
             dt = clock.tick(target_fps) / 1000.0
@@ -428,6 +655,17 @@ class GameManager:
                     combo = 0
                     feedback_timer = feedback_max_time
                     feedback_y_offset = 0.0
+                    hp_drop_w = (self.width - 450) * (hp_miss_drain / 100.0)
+                    chunk_x = 350 + (self.width - 450) * (hp / 100.0)
+                    ratio = max(0.0, min(1.0, hp / 100.0))
+                    chunk_col = (int(255 + (0 - 255) * ratio), int(70 + (229 - 70) * ratio), int(70 + (255 - 70) * ratio))
+                    particles.append({
+                        "x": chunk_x, "y": 30, "w": hp_drop_w, "h": 22,
+                        "vx": random.uniform(50, 100), "vy": random.uniform(-150, -50),
+                        "rot": 0.0, "vrot": random.uniform(-5, 5),
+                        "life": 0.8, "max_life": 0.8,
+                        "color": chunk_col, "type": "chunk"
+                    })
                     current_note_idx += 1
                 else:
                     break
@@ -491,6 +729,20 @@ class GameManager:
                                     combo += 1
                                     counts["perfect"] += 1
                                     hp = min(100.0, hp + 1.0)
+                                    for _ in range(12):
+                                        angle = random.uniform(0, math.pi * 2)
+                                        speed = random.uniform(150, 400)
+                                        particles.append({
+                                            "x": self.target_x,
+                                            "y": self.lane_y,
+                                            "vx": math.cos(angle) * speed,
+                                            "vy": math.sin(angle) * speed,
+                                            "life": random.uniform(0.4, 0.8),
+                                            "max_life": 0.8,
+                                            "color": (255, 215, 0),
+                                            "type": "glitter",
+                                            "size": random.uniform(2, 6)
+                                        })
                                 elif abs_err <= self.GREAT_WINDOW:
                                     feedback_text = "GREAT!"
                                     score += 150 * (1 + combo * 0.1) * mod_score_mult
@@ -511,10 +763,10 @@ class GameManager:
                                 active_note["hit"] = True
                                 feedback_timer = feedback_max_time
                                 feedback_y_offset = 0.0
+                                combo_pop_timer = 0.15
 
                                 if combo > max_combo:
                                     max_combo = combo
-                                ur_text_surf = self.font_small.render(f"UR: {ur_value:.1f}  |  MAX COMBO: {max_combo}", True, self.MUTED_COLOR)
 
                                 # Expanding ripple animation
                                 hit_ripples.append({
@@ -535,11 +787,23 @@ class GameManager:
                                     hp = 0.0
                                 feedback_timer = feedback_max_time
                                 feedback_y_offset = 0.0
+                                hp_drop_w = (self.width - 450) * (hp_wrong_drain / 100.0)
+                                chunk_x = 350 + (self.width - 450) * (hp / 100.0)
+                                ratio = max(0.0, min(1.0, hp / 100.0))
+                                chunk_col = (int(255 + (0 - 255) * ratio), int(70 + (229 - 70) * ratio), int(70 + (255 - 70) * ratio))
+                                particles.append({
+                                    "x": chunk_x, "y": 30, "w": hp_drop_w, "h": 22,
+                                    "vx": random.uniform(50, 100), "vy": random.uniform(-150, -50),
+                                    "rot": 0.0, "vrot": random.uniform(-5, 5),
+                                    "life": 0.8, "max_life": 0.8,
+                                    "color": chunk_col, "type": "chunk"
+                                })
 
             # Fail condition (ignored if No Fail mod is active)
             if hp <= 0 and not is_nf:
                 conductor.stop()
-                return self._show_fail_screen(score, max_combo, clock)
+                last_frame = self.screen.copy()
+                return self._show_fail_screen(score, max_combo, clock, last_frame)
 
             # Completion condition
             if current_note_idx >= len(notes):
@@ -549,7 +813,8 @@ class GameManager:
                 end_cooldown -= dt
                 if end_cooldown <= 0.0:
                     conductor.stop()
-                    return self._show_results(score, max_combo, timing_errors, counts, ur_value, clock)
+                    last_frame = self.screen.copy()
+                    return self._show_results(score, max_combo, timing_errors, counts, ur_value, clock, last_frame)
 
             # --- RENDERING ---
             if bg_surface:
@@ -557,13 +822,66 @@ class GameManager:
             else:
                 self.screen.fill(self.BG_COLOR)
 
-            # HP bar
-            hp_bar_rect = pygame.Rect(350, 35, self.width - 450, 18)
-            pygame.draw.rect(self.screen, (55, 30, 38), hp_bar_rect, border_radius=6)
-            hp_fill = pygame.Rect(hp_bar_rect.x, hp_bar_rect.y, int(hp_bar_rect.width * hp / 100.0), hp_bar_rect.height)
-            pygame.draw.rect(self.screen, (70, 220, 150) if hp > 30 else (255, 80, 80), hp_fill, border_radius=6)
-            hp_label = self.font_small.render(f"HP {hp:.0f}%", True, self.TEXT_COLOR)
-            self.screen.blit(hp_label, (self.width - 90, 34))
+            # Styled HP bar & Particles Update
+            display_hp += (hp - display_hp) * 10.0 * dt
+            
+            hp_bar_w = self.width - 450
+            skew = 15
+            
+            ratio = max(0.0, min(1.0, display_hp / 100.0))
+            fill_color = (
+                int(255 + (0 - 255) * ratio),
+                int(70 + (229 - 70) * ratio),
+                int(70 + (255 - 70) * ratio)
+            )
+
+            bg_poly = [(350 + skew, 30), (350 + hp_bar_w, 30), (350 + hp_bar_w - skew, 52), (350, 52)]
+            pygame.draw.polygon(self.screen, (22, 22, 30), bg_poly)
+            
+            fill_w = int(hp_bar_w * ratio)
+            if fill_w > 0:
+                fill_poly = [(350 + skew, 30), (350 + fill_w, 30), (350 + max(0, fill_w - skew), 52), (350, 52)]
+                pygame.draw.polygon(self.screen, fill_color, fill_poly)
+                
+            pygame.draw.polygon(self.screen, (45, 48, 65), bg_poly, 2)
+            
+            hp_label = self.font_small.render(f"HP {display_hp:.0f}%", True, fill_color)
+            self.screen.blit(hp_label, (self.width - 90, 32))
+            
+            # Particle Render
+            active_particles = []
+            for p in particles:
+                p["x"] += p["vx"] * dt
+                p["y"] += p["vy"] * dt
+                if p["type"] == "chunk":
+                    p["vy"] += 500 * dt
+                    p["rot"] += p["vrot"] * 60 * dt
+                elif p["type"] == "damage":
+                    p["vy"] += 500 * dt
+                else:
+                    p["vy"] += 200 * dt
+                p["life"] -= dt
+                if p["life"] > 0:
+                    alpha = max(0, int(255 * (p["life"] / p["max_life"])))
+                    if p["type"] == "chunk":
+                        cw, ch = int(p["w"]), int(p["h"])
+                        if cw > 0:
+                            surf = pygame.Surface((cw + skew, ch), pygame.SRCALPHA)
+                            local_poly = [(skew, 0), (cw, 0), (max(0, cw - skew), ch), (0, ch)]
+                            pygame.draw.polygon(surf, (*p["color"], alpha), local_poly)
+                            rotated = pygame.transform.rotate(surf, p["rot"])
+                            self.screen.blit(rotated, (p["x"], p["y"]))
+                    else:
+                        size = max(1, int(p.get("size", 2) * (p["life"] / p["max_life"])))
+                        if size > 0:
+                            p_surf = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
+                            if p["type"] == "glitter":
+                                pygame.draw.circle(p_surf, (*p["color"], alpha), (size, size), size)
+                            else:
+                                pygame.draw.rect(p_surf, (*p["color"], alpha), (0, 0, size*2, size*2))
+                            self.screen.blit(p_surf, (p["x"] - size, p["y"] - size))
+                    active_particles.append(p)
+            particles = active_particles
 
             # Render Active Mod Badges on HUD
             if GlobalState.active_mods:
@@ -577,9 +895,15 @@ class GameManager:
                     badge_x -= 44
 
             # Horizontal Target Lane & Ambient Rings
-            pygame.draw.line(self.screen, self.LINE_COLOR, (0, self.lane_y), (self.width, self.lane_y), 4)
-            pygame.draw.circle(self.screen, (25, 25, 38), (self.target_x, self.lane_y), 45)
-            pygame.draw.circle(self.screen, self.ACCENT_COLOR, (self.target_x, self.lane_y), 45, 3)
+            pygame.draw.line(self.screen, (0, 100, 120), (0, self.lane_y), (self.width, self.lane_y), 8)
+            pygame.draw.line(self.screen, self.ACCENT_COLOR, (0, self.lane_y), (self.width, self.lane_y), 2)
+            
+            beat_progress = (conductor.song_position / (60.0 / conductor.bpm)) % 1.0 if conductor.bpm > 0 else 0
+            pulse_radius = 45 + 5 * (1.0 - beat_progress)
+            
+            pygame.draw.circle(self.screen, (25, 25, 38), (self.target_x, self.lane_y), int(pulse_radius))
+            pygame.draw.circle(self.screen, self.ACCENT_COLOR, (self.target_x, self.lane_y), int(pulse_radius), 3)
+            pygame.draw.circle(self.screen, (0, 100, 120), (self.target_x, self.lane_y), int(pulse_radius) + 3, 2)
 
             # Update & Render Expanding Hit Ripples
             active_ripples = []
@@ -620,10 +944,33 @@ class GameManager:
 
             # --- MONKEYTYPE-STYLE UPCOMING WORDS GUIDE (Cached) ---
             hud_y = self.lane_y + 120
-            pygame.draw.line(self.screen, self.LINE_COLOR, (300, hud_y - 15), (self.width - 300, hud_y - 15), 1)
+            
+            panel_w = 700
+            panel_rect = pygame.Rect(self.width // 2 - panel_w // 2, hud_y - 25, panel_w, 95)
+            panel_surf = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surf, (15, 15, 22, 190), panel_surf.get_rect(), border_radius=12)
+            pygame.draw.rect(panel_surf, (45, 48, 65, 220), panel_surf.get_rect(), 2, border_radius=12)
+            self.screen.blit(panel_surf, panel_rect)
 
             guide_label = self.font_small.render("UPCOMING WORDS", True, self.MUTED_COLOR)
-            self.screen.blit(guide_label, (self.width // 2 - guide_label.get_width() // 2, hud_y))
+            self.screen.blit(guide_label, (self.width // 2 - guide_label.get_width() // 2, hud_y - 15))
+            
+            # Left side of panel: Max Combo
+            mc_lbl = self.font_small.render("MAX COMBO: ", True, self.MUTED_COLOR)
+            mc_val = self.font_small.render(f"{max_combo}x", True, self.TEXT_COLOR)
+            self.screen.blit(mc_lbl, (panel_rect.left + 25, hud_y - 15))
+            self.screen.blit(mc_val, (panel_rect.left + 25 + mc_lbl.get_width(), hud_y - 15))
+            
+            # Right side of panel: UR (Unstable Rate)
+            ur_lbl = self.font_small.render("UR: ", True, self.MUTED_COLOR)
+            ur_col = self.TEXT_COLOR
+            if ur_value > 0:
+                if ur_value < 100: ur_col = self.ACCENT_COLOR
+                elif ur_value > 150: ur_col = (255, 70, 70)
+            ur_val = self.font_small.render(f"{ur_value:.1f}" if ur_value > 0 else "---", True, ur_col)
+            ur_start_x = panel_rect.right - 25 - (ur_lbl.get_width() + ur_val.get_width())
+            self.screen.blit(ur_lbl, (ur_start_x, hud_y - 15))
+            self.screen.blit(ur_val, (ur_start_x + ur_lbl.get_width(), hud_y - 15))
 
             if current_note_idx < len(notes):
                 # Re-render HUD only when active note index changes
@@ -688,8 +1035,54 @@ class GameManager:
                     base_judgement.set_alpha(current_alpha)
                     self.screen.blit(base_judgement, base_judgement.get_rect(center=(self.target_x, self.lane_y - 90 + feedback_y_offset)))
 
-            # --- UNSTABLE RATE (UR) WINDOW ---
-            self.screen.blit(ur_text_surf, (self.width // 2 - ur_text_surf.get_width() // 2, self.height - 35))
+
+            if last_frame:
+                fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
+                if fade_progress < 1.0:
+                    if not hasattr(self, 'run_trans') or self.run_trans['time_start'] != time_start:
+                        mx, my = pygame.mouse.get_pos()
+                        trans_tiles = []
+                        for y in range(0, self.height, 40):
+                            for x in range(0, self.width, 40):
+                                cx = x + 20
+                                cy = y + 20
+                                dist = math.hypot(cx - mx, cy - my)
+                                trans_tiles.append({
+                                    'x': x, 'y': y, 'dist': dist,
+                                    'vx': (cx - mx) / (dist + 1) * random.uniform(200, 900),
+                                    'vy': (cy - my) / (dist + 1) * random.uniform(200, 900),
+                                    'delay': dist / 1800.0
+                                })
+                        self.run_trans = {'tiles': trans_tiles, 'mx': mx, 'my': my, 'time_start': time_start}
+
+                    for t in self.run_trans['tiles']:
+                        local_p = (fade_progress - t['delay']) / 0.4
+                        if local_p <= 0:
+                            self.screen.blit(last_frame, (t['x'], t['y']), pygame.Rect(t['x'], t['y'], 40, 40))
+                        elif local_p < 1:
+                            ease_p = 1.0 - (1.0 - local_p)**3
+                            nx = t['x'] + t['vx'] * ease_p
+                            ny = t['y'] + t['vy'] * ease_p
+                            s = int(40 * (1.0 - ease_p))
+                            if s > 0:
+                                self.screen.blit(last_frame, (int(nx + 20 - s/2), int(ny + 20 - s/2)), pygame.Rect(t['x'], t['y'], s, s))
+
+                    shock_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                    shockwave_radius = fade_progress * 2000
+                    shockwave_thickness = int(max(1, 200 * (1.0 - fade_progress)))
+                    if shockwave_radius > 0:
+                        pygame.draw.circle(shock_surf, (0, 229, 255, int(255 * (1.0 - fade_progress))), (self.run_trans['mx'], self.run_trans['my']), int(shockwave_radius), shockwave_thickness)
+                        for _ in range(40):
+                            angle = random.uniform(0, math.pi * 2)
+                            r_offset = random.uniform(-shockwave_thickness, shockwave_thickness * 1.5)
+                            px = self.run_trans['mx'] + math.cos(angle) * (shockwave_radius + r_offset)
+                            py = self.run_trans['my'] + math.sin(angle) * (shockwave_radius + r_offset)
+                            psize = random.randint(2, 8)
+                            palpha = int(255 * (1.0 - fade_progress) * random.uniform(0.5, 1.0))
+                            pygame.draw.circle(shock_surf, (0, 255, 255, palpha), (int(px), int(py)), psize)
+                    self.screen.blit(shock_surf, (0, 0))
+                else:
+                    last_frame = None
 
             pygame.display.flip()
 

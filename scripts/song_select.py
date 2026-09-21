@@ -1,3 +1,4 @@
+import random
 import os
 import math
 import pygame
@@ -302,8 +303,9 @@ class SongSelect:
         pygame.mixer.music.stop()
         return "play"
 
-    def run(self):
+    def run(self, last_frame=None):
         clock = pygame.time.Clock()
+        time_start = pygame.time.get_ticks()
         running = True
         
         while running:
@@ -795,6 +797,52 @@ class SongSelect:
                 pygame.draw.rect(self.screen, self.ACCENT_COLOR if is_close_hovered else (60, 60, 80), close_rect, 1, border_radius=6)
                 c_txt = self.font_small.render("CLOSE", True, self.ACCENT_COLOR if is_close_hovered else self.TEXT_COLOR)
                 self.screen.blit(c_txt, c_txt.get_rect(center=close_rect.center))
+
+            if last_frame:
+                fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
+                if fade_progress < 1.0:
+                    if not hasattr(self, 'trans_data') or self.trans_data['time_start'] != time_start:
+                        mx, my = pygame.mouse.get_pos()
+                        trans_tiles = []
+                        for y in range(0, self.height, 40):
+                            for x in range(0, self.width, 40):
+                                cx = x + 20
+                                cy = y + 20
+                                dist = math.hypot(cx - mx, cy - my)
+                                trans_tiles.append({
+                                    'x': x, 'y': y, 'dist': dist,
+                                    'vx': (cx - mx) / (dist + 1) * random.uniform(200, 900),
+                                    'vy': (cy - my) / (dist + 1) * random.uniform(200, 900),
+                                    'delay': dist / 1800.0
+                                })
+                        self.trans_data = {'tiles': trans_tiles, 'mx': mx, 'my': my, 'time_start': time_start}
+                    
+                    for t in self.trans_data['tiles']:
+                        local_p = (fade_progress - t['delay']) / 0.4
+                        if local_p <= 0:
+                            self.screen.blit(last_frame, (t['x'], t['y']), pygame.Rect(t['x'], t['y'], 40, 40))
+                        elif local_p < 1:
+                            ease_p = 1.0 - (1.0 - local_p)**3
+                            nx = t['x'] + t['vx'] * ease_p
+                            ny = t['y'] + t['vy'] * ease_p
+                            s = int(40 * (1.0 - ease_p))
+                            if s > 0:
+                                self.screen.blit(last_frame, (int(nx + 20 - s/2), int(ny + 20 - s/2)), pygame.Rect(t['x'], t['y'], s, s))
+                    
+                    shock_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                    shockwave_radius = fade_progress * 2000
+                    shockwave_thickness = int(max(1, 200 * (1.0 - fade_progress)))
+                    if shockwave_radius > 0:
+                        pygame.draw.circle(shock_surf, (0, 229, 255, int(255 * (1.0 - fade_progress))), (self.trans_data['mx'], self.trans_data['my']), int(shockwave_radius), shockwave_thickness)
+                        for _ in range(40):
+                            angle = random.uniform(0, math.pi * 2)
+                            r_offset = random.uniform(-shockwave_thickness, shockwave_thickness * 1.5)
+                            px = self.trans_data['mx'] + math.cos(angle) * (shockwave_radius + r_offset)
+                            py = self.trans_data['my'] + math.sin(angle) * (shockwave_radius + r_offset)
+                            psize = random.randint(2, 8)
+                            palpha = int(255 * (1.0 - fade_progress) * random.uniform(0.5, 1.0))
+                            pygame.draw.circle(shock_surf, (0, 255, 255, palpha), (int(px), int(py)), psize)
+                    self.screen.blit(shock_surf, (0, 0))
 
             pygame.display.flip()
             clock.tick(target_fps)
