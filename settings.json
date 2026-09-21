@@ -1,13 +1,7 @@
 {
-<<<<<<< Updated upstream
     "music_volume": 0.23,
     "sfx_volume": 0.7,
-    "note_speed": 10.5,
-=======
-    "music_volume": 0.14,
-    "sfx_volume": 0.24,
-    "note_speed": 9.66,
->>>>>>> Stashed changes
+    "note_speed": 10.0,
     "fps_mode": "refresh_rate",
     "audio_offset_ms": -45.0,
     "bg_brightness": 1.0
