@@ -7,8 +7,9 @@ class Conductor:
     with audio buffer latency compensation and smooth pause handling.
     """
     def __init__(self, bpm: float = 120.0):
-        self.bpm = bpm
-        self.sec_per_beat = 60.0 / bpm if bpm > 0 else 0.5
+        self.time_multiplier = 1.5 if "DT" in GlobalState.active_mods else 1.0
+        self.bpm = bpm * self.time_multiplier
+        self.sec_per_beat = 60.0 / self.bpm if self.bpm > 0 else 0.5
         self.song_position = 0.0
         self.song_position_in_beats = 0.0
         
@@ -76,18 +77,19 @@ class Conductor:
 
         now = time.perf_counter()
         elapsed = max(0.0, now - self.start_time - self.total_paused_time)
+        song_elapsed = elapsed * self.time_multiplier
         
         # Check Pygame mixer position to calibrate initial buffer delay
         raw_pos_ms = pygame.mixer.music.get_pos()
         if raw_pos_ms > 0 and not self.audio_synced:
             # Calibrate hardware audio start delay once audio starts flowing
-            raw_pos = raw_pos_ms / 1000.0
-            self.audio_sync_offset = elapsed - raw_pos
+            raw_pos_sec = (raw_pos_ms / 1000.0) * self.time_multiplier
+            self.audio_sync_offset = song_elapsed - raw_pos_sec
             self.audio_synced = True
 
         # Apply calibrated audio offset + user custom audio offset setting
         user_offset_sec = GlobalState.audio_offset_ms / 1000.0
-        calibrated_time = elapsed - self.audio_sync_offset + user_offset_sec
+        calibrated_time = song_elapsed - self.audio_sync_offset + user_offset_sec
         
         self.song_position = max(0.0, calibrated_time)
         self.song_position_in_beats = self.song_position / self.sec_per_beat

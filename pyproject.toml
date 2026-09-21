@@ -1,3 +1,5 @@
 [tool.pyright]
 include = [".", "scripts"]
 extraPaths = [".", "scripts"]
+venvPath = "."
+venv = ".venv"

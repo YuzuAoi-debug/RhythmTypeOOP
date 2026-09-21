@@ -1,3 +1,5 @@
+import os
+import wave
 import math
 import pygame
 from global_state import GlobalState, get_fps_target
@@ -27,13 +29,15 @@ class GameManager:
         self.font_combo = pygame.font.SysFont("Arial", 52, bold=True)
         
         # Gameplay Constants
-        self.SCROLL_SPEED = 400.0
+        is_hr = "HR" in GlobalState.active_mods
+        self.SCROLL_SPEED = 560.0 if is_hr else 400.0
         self.SPAWN_DISTANCE = 900.0
         
-        self.PERFECT_WINDOW = 0.04  # 40ms
-        self.GREAT_WINDOW = 0.08    # 80ms
-        self.GOOD_WINDOW = 0.12     # 120ms
-        self.MISS_WINDOW = 0.15     # 150ms
+        # HardRock (HR) tightens timing windows by ~30%
+        self.PERFECT_WINDOW = 0.028 if is_hr else 0.04  # 28ms vs 40ms
+        self.GREAT_WINDOW = 0.056 if is_hr else 0.08    # 56ms vs 80ms
+        self.GOOD_WINDOW = 0.084 if is_hr else 0.12     # 84ms vs 120ms
+        self.MISS_WINDOW = 0.105 if is_hr else 0.15     # 105ms vs 150ms
         
         # Horizontal layout coordinates
         self.target_x = 200
@@ -202,12 +206,6 @@ class GameManager:
         ratio_50 = c50 / total
 
         # Official grading rules:
-        # SS: 100% accuracy (all 300s, no misses)
-        # S: Over 90% 300s, less than 1% 50s, and no misses
-        # A: Over 80% 300s with no misses OR over 90% 300s (misses allowed)
-        # B: Over 70% 300s with no misses OR over 80% 300s (misses allowed)
-        # C: Over 60% 300s
-        # D: Anything else
         if c300 == total and cmiss == 0:
             grade = "SS"
         elif ratio_300 > 0.90 and ratio_50 < 0.01 and cmiss == 0:
@@ -250,7 +248,9 @@ class GameManager:
             self._draw_centered(f"Accuracy  {accuracy * 100:.2f}%", self.font_med, self.TEXT_COLOR, 270)
             self._draw_centered(f"Score  {int(score):06d}    Max combo  {max_combo}x", self.font_small, self.TEXT_COLOR, 315)
             self._draw_centered(f"PERFECT {counts['perfect']}   GREAT {counts['great']}   GOOD {counts['good']}   MISS {counts['miss']}", self.font_small, self.MUTED_COLOR, 355)
-            self._draw_centered(f"UR: {ur_value:.1f}", self.font_small, self.MUTED_COLOR, 390)
+            mod_str = " ".join(sorted(GlobalState.active_mods)) if GlobalState.active_mods else "None"
+            mult = GlobalState.get_score_multiplier()
+            self._draw_centered(f"UR: {ur_value:.1f}  |  Mods: {mod_str} ({mult:.2f}x)", self.font_small, self.MUTED_COLOR, 390)
             self._draw_centered("CTRL+R to retry   |   ENTER / ESC to menu", self.font_small, (80, 80, 110), 440)
 
             self._draw_button("RETRY", retry_rect, retry_rect.collidepoint(mouse_pos))
@@ -258,6 +258,37 @@ class GameManager:
 
             pygame.display.flip()
             clock.tick(30)
+
+    @staticmethod
+    def _get_dt_audio_path(audio_path: str) -> str:
+        """Returns path to 1.5x sped-up audio file, generating and caching it if needed."""
+        if not audio_path or not os.path.exists(audio_path):
+            return audio_path
+
+        cache_path = os.path.splitext(audio_path)[0] + "_dt15.wav"
+        if os.path.exists(cache_path):
+            return cache_path
+
+        try:
+            import numpy as np
+
+            orig = pygame.mixer.Sound(audio_path)
+            raw = orig.get_raw()
+            arr = np.frombuffer(raw, dtype=np.int16).reshape(-1, 2)
+            target_len = int(len(arr) / 1.5)
+            indices = (np.arange(target_len) * 1.5).astype(np.int64)
+            fast_arr = arr[indices]
+
+            with wave.open(cache_path, "wb") as wf:
+                wf.setnchannels(2)
+                wf.setsampwidth(2)
+                wf.setframerate(44100)
+                wf.writeframes(fast_arr.tobytes())
+
+            return cache_path
+        except Exception as e:
+            print(f"Warning: Failed to generate DT audio: {e}")
+            return audio_path
 
     def run(self):
         if not pygame.mixer.get_init():
@@ -280,8 +311,13 @@ class GameManager:
             except Exception:
                 bg_surface = None
 
+        # Load audio (use 1.5x sped-up audio if DoubleTime is active)
+        audio_to_play = song_data.get("audio_path", "")
+        if "DT" in GlobalState.active_mods and audio_to_play:
+            audio_to_play = self._get_dt_audio_path(audio_to_play)
+
         try:
-            pygame.mixer.music.load(song_data.get("audio_path", ""))
+            pygame.mixer.music.load(audio_to_play)
             pygame.mixer.music.set_volume(GlobalState.music_volume)
         except Exception:
             print("Audio file missing, running silent simulation.")
@@ -324,6 +360,15 @@ class GameManager:
         counts = {"perfect": 0, "great": 0, "good": 0, "miss": 0}
 
         current_note_idx = 0
+
+        # Game Mods configuration
+        mod_score_mult = GlobalState.get_score_multiplier()
+        is_hr = "HR" in GlobalState.active_mods
+        is_sd = "SD" in GlobalState.active_mods
+        is_pf = "PF" in GlobalState.active_mods
+        is_nf = "NF" in GlobalState.active_mods
+        hp_miss_drain = 12.0 if is_hr else 8.0
+        hp_wrong_drain = 8.0 if is_hr else 5.0
 
         # Animation & Feedback State Variables
         feedback_text = ""
@@ -375,7 +420,9 @@ class GameManager:
                 if current_time > target_note["target_time"] + self.MISS_WINDOW:
                     target_note["missed"] = True
                     counts["miss"] += 1
-                    hp = max(0.0, hp - 8.0)
+                    hp = max(0.0, hp - hp_miss_drain)
+                    if is_sd or is_pf:
+                        hp = 0.0
                     feedback_text = "MISS"
                     self._play_miss_sound()
                     combo = 0
@@ -440,21 +487,25 @@ class GameManager:
 
                                 if abs_err <= self.PERFECT_WINDOW:
                                     feedback_text = "PERFECT!"
-                                    score += 300 * (1 + combo * 0.1)
+                                    score += 300 * (1 + combo * 0.1) * mod_score_mult
                                     combo += 1
                                     counts["perfect"] += 1
                                     hp = min(100.0, hp + 1.0)
                                 elif abs_err <= self.GREAT_WINDOW:
                                     feedback_text = "GREAT!"
-                                    score += 150 * (1 + combo * 0.1)
+                                    score += 150 * (1 + combo * 0.1) * mod_score_mult
                                     combo += 1
                                     counts["great"] += 1
                                     hp = min(100.0, hp + 0.5)
+                                    if is_pf:
+                                        hp = 0.0
                                 else:
                                     feedback_text = "GOOD"
-                                    score += 50 * (1 + combo * 0.1)
+                                    score += 50 * (1 + combo * 0.1) * mod_score_mult
                                     combo += 1
                                     counts["good"] += 1
+                                    if is_pf:
+                                        hp = 0.0
 
                                 self._play_hitsound()
                                 active_note["hit"] = True
@@ -479,12 +530,14 @@ class GameManager:
                                 feedback_text = "WRONG"
                                 self._play_miss_sound()
                                 combo = 0
-                                hp = max(0.0, hp - 5.0)
+                                hp = max(0.0, hp - hp_wrong_drain)
+                                if is_sd or is_pf:
+                                    hp = 0.0
                                 feedback_timer = feedback_max_time
                                 feedback_y_offset = 0.0
 
-            # Fail condition
-            if hp <= 0:
+            # Fail condition (ignored if No Fail mod is active)
+            if hp <= 0 and not is_nf:
                 conductor.stop()
                 return self._show_fail_screen(score, max_combo, clock)
 
@@ -511,6 +564,17 @@ class GameManager:
             pygame.draw.rect(self.screen, (70, 220, 150) if hp > 30 else (255, 80, 80), hp_fill, border_radius=6)
             hp_label = self.font_small.render(f"HP {hp:.0f}%", True, self.TEXT_COLOR)
             self.screen.blit(hp_label, (self.width - 90, 34))
+
+            # Render Active Mod Badges on HUD
+            if GlobalState.active_mods:
+                badge_x = self.width - 50
+                for mod_name in sorted(GlobalState.active_mods):
+                    badge_rect = pygame.Rect(badge_x - 38, 65, 38, 22)
+                    pygame.draw.rect(self.screen, (40, 40, 60), badge_rect, border_radius=4)
+                    pygame.draw.rect(self.screen, self.ACCENT_COLOR, badge_rect, 1, border_radius=4)
+                    b_txt = self.font_small.render(mod_name, True, self.ACCENT_COLOR)
+                    self.screen.blit(b_txt, b_txt.get_rect(center=badge_rect.center))
+                    badge_x -= 44
 
             # Horizontal Target Lane & Ambient Rings
             pygame.draw.line(self.screen, self.LINE_COLOR, (0, self.lane_y), (self.width, self.lane_y), 4)

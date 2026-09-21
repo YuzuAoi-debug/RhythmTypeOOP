@@ -68,6 +68,29 @@ class SongSelect:
             alpha = int(255 * (y / 80.0))
             pygame.draw.line(self.fade_surf, (22, 22, 30, alpha), (0, y), (490, y))
 
+        self.show_mods_modal = False
+        self.mods_info = [
+            {"code": "NF", "name": "No Fail", "desc": "Can't fail even at 0% HP", "mult": "0.50x"},
+            {"code": "HR", "name": "Hard Rock", "desc": "Tighter timing & 1.4x speed", "mult": "1.06x"},
+            {"code": "SD", "name": "Sudden Death", "desc": "1 Miss or Wrong = Fail", "mult": "1.00x"},
+            {"code": "PF", "name": "Perfect", "desc": "SS or Instant Fail", "mult": "1.00x"},
+            {"code": "DT", "name": "Double Time", "desc": "1.5x Song Speed", "mult": "1.12x"},
+        ]
+
+        # Start preview playback of selected song immediately
+        if 0 <= self.selected_song_index < len(GlobalState.song_list):
+            self._play_song_preview(GlobalState.song_list[self.selected_song_index])
+
+    def _play_song_preview(self, song):
+        if not song or not song.get("audio_path"):
+            return
+        try:
+            pygame.mixer.music.load(song["audio_path"])
+            pygame.mixer.music.set_volume(GlobalState.music_volume)
+            pygame.mixer.music.play(-1)
+        except Exception:
+            pass
+
     def _play_hover(self):
         if self.hover_sound:
             try:
@@ -84,6 +107,25 @@ class SongSelect:
             except Exception:
                 pass
 
+    def _start_song(self, song, diff=None):
+        if not diff and song.get("difficulties"):
+            diff = song["difficulties"][0]
+        if not diff:
+            return None
+
+        GlobalState.selected_song_data = {
+            "title": song["title"],
+            "artist": song.get("artist", ""),
+            "audio_path": song["audio_path"],
+            "background_path": song.get("background_path", ""),
+            "bpm": song.get("bpm", 130.0),
+            "osu_path": diff["osu_path"],
+            "diff_name": diff["name"]
+        }
+        self.screen.set_clip(None)
+        pygame.mixer.music.stop()
+        return "play"
+
     def run(self):
         clock = pygame.time.Clock()
         running = True
@@ -96,13 +138,43 @@ class SongSelect:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return "quit"
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    return "menu"
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.show_mods_modal:
+                            self.show_mods_modal = False
+                        else:
+                            return "menu"
+                    if event.key == pygame.K_F1:
+                        self._play_click()
+                        self.show_mods_modal = not self.show_mods_modal
+
+                    if not self.show_mods_modal:
+                        # Arrow navigation across song list
+                        if event.key in (pygame.K_DOWN, pygame.K_j):
+                            if GlobalState.song_list:
+                                new_idx = (self.selected_song_index + 1) % len(GlobalState.song_list)
+                                self.selected_song_index = new_idx
+                                self.expanded_song_index = new_idx
+                                self._play_song_preview(GlobalState.song_list[new_idx])
+                                self.target_scroll_y = -max(0.0, self.selected_song_index * 75.0 - 100.0)
+                        elif event.key in (pygame.K_UP, pygame.K_k):
+                            if GlobalState.song_list:
+                                new_idx = (self.selected_song_index - 1) % len(GlobalState.song_list)
+                                self.selected_song_index = new_idx
+                                self.expanded_song_index = new_idx
+                                self._play_song_preview(GlobalState.song_list[new_idx])
+                                self.target_scroll_y = -max(0.0, self.selected_song_index * 75.0 - 100.0)
+                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                            if 0 <= self.selected_song_index < len(GlobalState.song_list):
+                                res = self._start_song(GlobalState.song_list[self.selected_song_index])
+                                if res:
+                                    return res
+
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mouse_clicked = True
-                if event.type == pygame.MOUSEWHEEL:
+                if event.type == pygame.MOUSEWHEEL and not self.show_mods_modal:
                     self.target_scroll_y += event.y * 45.0
-                if event.type == pygame.DROPFILE:
+                if event.type == pygame.DROPFILE and not self.show_mods_modal:
                     from beatmap_importer import BeatmapImporter
                     imported = BeatmapImporter.import_file(event.file)
                     if imported:
@@ -115,6 +187,7 @@ class SongSelect:
                             except Exception:
                                 pass
                         self.target_scroll_y = -max(0.0, self.selected_song_index * 75.0 - 100.0)
+                        self._play_song_preview(imported)
 
             # Calculate content height to clamp scrolling
             total_content_height = 0
@@ -154,21 +227,42 @@ class SongSelect:
 
                 artist_text = sel_song.get("artist", "Unknown Artist")
                 bpm_val = sel_song.get("bpm", 130.0)
-                p_meta = self.font_diff.render(f"Artist: {artist_text}  |  BPM: {int(bpm_val)}", True, self.MUTED_COLOR)
+                if "DT" in GlobalState.active_mods:
+                    bpm_val *= 1.5
+                p_meta = self.font_diff.render(f"Artist: {artist_text}  |  BPM: {int(bpm_val)}" + (" (DT 1.5x)" if "DT" in GlobalState.active_mods else ""), True, self.MUTED_COLOR)
                 self.screen.blit(p_meta, (765, 430))
 
                 diff_count = len(sel_song["difficulties"])
                 p_diffs = self.font_small.render(f"Available Difficulties: {diff_count}", True, self.ACCENT_COLOR)
                 self.screen.blit(p_diffs, (765, 470))
 
-                help_txt = self.font_small.render("Click a difficulty on the left to start track", True, (90, 90, 120))
-                self.screen.blit(help_txt, (765, 580))
+                # Display Active Mods on Preview Panel
+                mod_str = " ".join(sorted(GlobalState.active_mods)) if GlobalState.active_mods else "None"
+                mult = GlobalState.get_score_multiplier()
+                p_mods = self.font_small.render(f"Active Mods: {mod_str}  ({mult:.2f}x Multiplier)", True, self.TEXT_COLOR if GlobalState.active_mods else self.MUTED_COLOR)
+                self.screen.blit(p_mods, (765, 500))
+
+                # Interactive Quick Play Button
+                play_btn_rect = pygame.Rect(765, 535, 200, 44)
+                is_play_hovered = play_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+                if is_play_hovered and mouse_clicked:
+                    self._play_click()
+                    res = self._start_song(sel_song)
+                    if res:
+                        return res
+
+                pygame.draw.rect(self.screen, self.ACCENT_COLOR if is_play_hovered else (30, 42, 52), play_btn_rect, border_radius=8)
+                p_label = self.font_diff.render("▶ PLAY TRACK", True, (10, 10, 15) if is_play_hovered else self.ACCENT_COLOR)
+                self.screen.blit(p_label, p_label.get_rect(center=play_btn_rect.center))
+
+                help_txt = self.font_small.render("Press ENTER or click difficulty to start", True, (90, 90, 120))
+                self.screen.blit(help_txt, (765, 592))
             
             # Draw header (fixed at top)
             title_surf = self.font_title.render("SELECT A TRACK", True, self.TEXT_COLOR)
             self.screen.blit(title_surf, (50, 30))
             
-            esc_surf = self.font_small.render("Press ESC to return  |  Scroll with Mouse Wheel", True, self.MUTED_COLOR)
+            esc_surf = self.font_small.render("Press ESC to return  |  Scroll with Mouse Wheel  |  Press F1 for Mods", True, self.MUTED_COLOR)
             self.screen.blit(esc_surf, (50, 75))
 
             # Brand logo badge at top right
@@ -177,8 +271,8 @@ class SongSelect:
                 brand_text = self.font_song.render("RhythmType", True, self.TEXT_COLOR)
                 self.screen.blit(brand_text, (self.width - 180, 38))
 
-            # Clipping area for scrolling song list
-            clip_rect = pygame.Rect(0, 120, 720, self.height - 130)
+            # Clipping area for scrolling song list (leave room for bottom-left MODS bar)
+            clip_rect = pygame.Rect(0, 120, 720, self.height - 195)
             self.screen.set_clip(clip_rect)
 
             y_offset = 130 + int(self.scroll_y)
@@ -188,7 +282,7 @@ class SongSelect:
             # Dynamic generation of the Accordion list
             for i, song in enumerate(GlobalState.song_list):
                 song_rect = pygame.Rect(x_offset, y_offset, 650, 65)
-                is_song_hovered = song_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos)
+                is_song_hovered = song_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal
                 if is_song_hovered:
                     curr_hovered_item = f"song_{i}"
                 
@@ -204,13 +298,17 @@ class SongSelect:
                 diff_badge = self.font_small.render(f"{len(song['difficulties'])} Difficulties", True, self.MUTED_COLOR)
                 self.screen.blit(diff_badge, (x_offset + 20, y_offset + 40))
                 
-                if mouse_clicked and is_song_hovered:
+                if mouse_clicked and is_song_hovered and not self.show_mods_modal:
                     self._play_click()
-                    self.selected_song_index = i
-                    if self.expanded_song_index == i:
-                        self.expanded_song_index = -1
-                    else:
+                    if self.selected_song_index != i:
+                        self.selected_song_index = i
                         self.expanded_song_index = i
+                        self._play_song_preview(song)
+                    else:
+                        if self.expanded_song_index == i:
+                            self.expanded_song_index = -1
+                        else:
+                            self.expanded_song_index = i
                 
                 y_offset += 75
                 
@@ -218,7 +316,7 @@ class SongSelect:
                 if self.expanded_song_index == i:
                     for diff in song["difficulties"]:
                         diff_rect = pygame.Rect(x_offset + 45, y_offset, 605, 44)
-                        is_diff_hovered = diff_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos)
+                        is_diff_hovered = diff_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal
                         if is_diff_hovered:
                             curr_hovered_item = f"diff_{diff['name']}_{y_offset}"
                         
@@ -229,30 +327,113 @@ class SongSelect:
                         self.screen.blit(diff_text, (diff_rect.x + 20, diff_rect.y + 10))
                         
                         # Handle selection and payload binding
-                        if mouse_clicked and is_diff_hovered:
+                        if mouse_clicked and is_diff_hovered and not self.show_mods_modal:
                             self._play_click()
-                            GlobalState.selected_song_data = {
-                                "title": song["title"],
-                                "artist": song.get("artist", ""),
-                                "audio_path": song["audio_path"],
-                                "background_path": song.get("background_path", ""),
-                                "bpm": song.get("bpm", 130.0),
-                                "osu_path": diff["osu_path"],
-                                "diff_name": diff["name"]
-                            }
-                            self.screen.set_clip(None)
-                            pygame.mixer.music.stop()
-                            return "play"
+                            res = self._start_song(song, diff)
+                            if res:
+                                return res
                             
                         y_offset += 52
                     y_offset += 10
 
-            if curr_hovered_item != self.hovered_item:
+            if curr_hovered_item != self.hovered_item and not self.show_mods_modal:
+                self.hovered_item = curr_hovered_item
                 if curr_hovered_item is not None:
                     self._play_hover()
-                self.hovered_item = curr_hovered_item
 
             self.screen.set_clip(None)
+
+            # --- BOTTOM-LEFT MODS BAR ---
+            mods_btn_rect = pygame.Rect(50, self.height - 62, 170, 44)
+            is_mods_hovered = mods_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+            if is_mods_hovered and mouse_clicked:
+                self._play_click()
+                self.show_mods_modal = True
+
+            mods_btn_bg = self.HOVER_COLOR if is_mods_hovered else (24, 24, 34)
+            pygame.draw.rect(self.screen, mods_btn_bg, mods_btn_rect, border_radius=8)
+            pygame.draw.rect(self.screen, self.ACCENT_COLOR if (is_mods_hovered or GlobalState.active_mods) else (55, 55, 75), mods_btn_rect, 2, border_radius=8)
+            
+            mod_btn_text = f"MODS ({len(GlobalState.active_mods)}) [F1]" if GlobalState.active_mods else "MODS [F1]"
+            mod_btn_surf = self.font_diff.render(mod_btn_text, True, self.ACCENT_COLOR if GlobalState.active_mods else self.TEXT_COLOR)
+            self.screen.blit(mod_btn_surf, mod_btn_surf.get_rect(center=mods_btn_rect.center))
+
+            # Active Mod Badges next to MODS button at bottom left
+            if GlobalState.active_mods:
+                badge_x = 235
+                for m_code in sorted(GlobalState.active_mods):
+                    b_rect = pygame.Rect(badge_x, self.height - 56, 42, 32)
+                    pygame.draw.rect(self.screen, (35, 35, 52), b_rect, border_radius=6)
+                    pygame.draw.rect(self.screen, self.ACCENT_COLOR, b_rect, 1, border_radius=6)
+                    b_txt = self.font_diff.render(m_code, True, self.ACCENT_COLOR)
+                    self.screen.blit(b_txt, b_txt.get_rect(center=b_rect.center))
+                    badge_x += 48
+
+            # --- MOD SELECTION MODAL ---
+            if self.show_mods_modal:
+                dim_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                dim_surf.fill((0, 0, 0, 190))
+                self.screen.blit(dim_surf, (0, 0))
+
+                modal_rect = pygame.Rect(self.width // 2 - 290, self.height // 2 - 210, 580, 420)
+                pygame.draw.rect(self.screen, (20, 20, 28), modal_rect, border_radius=14)
+                pygame.draw.rect(self.screen, self.ACCENT_COLOR, modal_rect, 2, border_radius=14)
+
+                m_title = self.font_preview_title.render("GAME MODIFIERS", True, self.TEXT_COLOR)
+                self.screen.blit(m_title, (modal_rect.x + 30, modal_rect.y + 25))
+
+                mult_val = GlobalState.get_score_multiplier()
+                m_mult = self.font_diff.render(f"Score Multiplier: {mult_val:.2f}x", True, self.ACCENT_COLOR)
+                self.screen.blit(m_mult, (modal_rect.x + modal_rect.width - 210, modal_rect.y + 30))
+
+                pygame.draw.line(self.screen, (45, 45, 65), (modal_rect.x + 30, modal_rect.y + 70), (modal_rect.x + modal_rect.width - 30, modal_rect.y + 70), 1)
+
+                # Render Mod Card Items
+                card_y = modal_rect.y + 85
+                for m_info in self.mods_info:
+                    code = m_info["code"]
+                    is_active = code in GlobalState.active_mods
+                    card_rect = pygame.Rect(modal_rect.x + 30, card_y, modal_rect.width - 60, 50)
+                    is_card_hovered = card_rect.collidepoint(mouse_pos)
+
+                    if mouse_clicked and is_card_hovered:
+                        self._play_click()
+                        GlobalState.toggle_mod(code)
+
+                    c_bg = (40, 40, 60) if is_active else ((32, 32, 45) if is_card_hovered else (24, 24, 34))
+                    pygame.draw.rect(self.screen, c_bg, card_rect, border_radius=8)
+                    pygame.draw.rect(self.screen, self.ACCENT_COLOR if is_active else ((70, 70, 95) if is_card_hovered else (45, 45, 60)), card_rect, 2 if is_active else 1, border_radius=8)
+
+                    # Badge pill
+                    badge_rect = pygame.Rect(card_rect.x + 15, card_rect.y + 11, 45, 28)
+                    pygame.draw.rect(self.screen, self.ACCENT_COLOR if is_active else (50, 50, 70), badge_rect, border_radius=5)
+                    code_surf = self.font_diff.render(code, True, (10, 10, 15) if is_active else self.TEXT_COLOR)
+                    self.screen.blit(code_surf, code_surf.get_rect(center=badge_rect.center))
+
+                    # Title & Description
+                    name_surf = self.font_diff.render(m_info["name"], True, self.TEXT_COLOR)
+                    self.screen.blit(name_surf, (card_rect.x + 75, card_rect.y + 6))
+
+                    desc_surf = self.font_small.render(m_info["desc"], True, self.MUTED_COLOR)
+                    self.screen.blit(desc_surf, (card_rect.x + 75, card_rect.y + 26))
+
+                    mult_surf = self.font_diff.render(m_info["mult"], True, self.ACCENT_COLOR if is_active else self.MUTED_COLOR)
+                    self.screen.blit(mult_surf, (card_rect.x + card_rect.width - 70, card_rect.y + 14))
+
+                    card_y += 58
+
+                # Close Button
+                close_rect = pygame.Rect(modal_rect.x + modal_rect.width // 2 - 60, modal_rect.y + modal_rect.height - 48, 120, 36)
+                is_close_hovered = close_rect.collidepoint(mouse_pos)
+                if mouse_clicked and is_close_hovered:
+                    self._play_click()
+                    self.show_mods_modal = False
+
+                pygame.draw.rect(self.screen, (45, 45, 62) if is_close_hovered else (30, 30, 42), close_rect, border_radius=6)
+                pygame.draw.rect(self.screen, self.ACCENT_COLOR if is_close_hovered else (60, 60, 80), close_rect, 1, border_radius=6)
+                c_txt = self.font_small.render("CLOSE", True, self.ACCENT_COLOR if is_close_hovered else self.TEXT_COLOR)
+                self.screen.blit(c_txt, c_txt.get_rect(center=close_rect.center))
+
             pygame.display.flip()
             clock.tick(target_fps)
 

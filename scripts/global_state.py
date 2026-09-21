@@ -98,6 +98,40 @@ class GlobalState:
     audio_offset_ms: float = 0.0     # Hardware audio delay offset (-100ms to +100ms)
     bg_brightness: float = 0.4       # Gameplay background brightness (0.0 to 1.0)
     
+    # Active Game Mods (e.g. {"DT", "HR", "SD", "PF", "NF"})
+    active_mods: set = set()
+
+    MOD_MULTIPLIERS: Dict[str, float] = {
+        "NF": 0.50,
+        "HR": 1.06,
+        "SD": 1.00,
+        "PF": 1.00,
+        "DT": 1.12,
+    }
+
+    @classmethod
+    def get_score_multiplier(cls) -> float:
+        mult = 1.0
+        for mod in cls.active_mods:
+            mult *= cls.MOD_MULTIPLIERS.get(mod, 1.0)
+        return round(mult, 2)
+
+    @classmethod
+    def toggle_mod(cls, mod: str):
+        if mod in cls.active_mods:
+            cls.active_mods.remove(mod)
+        else:
+            cls.active_mods.add(mod)
+            if mod == "NF":
+                cls.active_mods.discard("SD")
+                cls.active_mods.discard("PF")
+            elif mod in ("SD", "PF"):
+                cls.active_mods.discard("NF")
+                if mod == "PF":
+                    cls.active_mods.discard("SD")
+                elif mod == "SD":
+                    cls.active_mods.discard("PF")
+
     # Audio file paths
     HITSOUND_PATH = get_asset_path("gameplay_audio/hitsound.wav")
     MISS_SOUND_PATH = get_asset_path("gameplay_audio/miss-sound.wav")
