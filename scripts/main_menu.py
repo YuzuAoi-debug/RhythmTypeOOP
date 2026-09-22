@@ -2,10 +2,62 @@ import os
 import math
 import random
 from bisect import bisect_right
-from typing import Optional
+from typing import Any, Optional
 import pygame
 from global_state import GlobalState, get_asset_path, get_fps_target
 from beatmap_parser import BeatmapParser
+
+
+def draw_equalizer_ring(
+    surface,
+    center_pos,
+    dynamic_data_source: Any = None,
+    *,
+    base_radius=205,
+    bar_count=64,
+    max_bar_length=42,
+    bar_width=3,
+    color=(0, 229, 255),
+    normalize_data=True,
+):
+    """Draw an osu!-style radial equalizer around a logo center.
+
+    ``dynamic_data_source`` may be a sequence of amplitudes, a callable that
+    receives the current tick count and returns a sequence, or ``None``. When
+    it is ``None``, a sine-wave animation keeps the ring moving without audio
+    input. Sequence values are normalized to 0..1 by default; set
+    ``normalize_data`` to ``False`` when supplying already-normalized values.
+    """
+    time_ms = pygame.time.get_ticks()
+    data: Any = dynamic_data_source(time_ms) if callable(dynamic_data_source) else dynamic_data_source
+    data = list(data) if data is not None else []
+
+    peak = max((abs(float(value)) for value in data), default=0.0)
+    center_x, center_y = center_pos
+
+    for index in range(bar_count):
+        angle = (math.tau * index) / bar_count
+        if data and peak > 0:
+            sample_index = int(index * len(data) / bar_count) % len(data)
+            value = abs(float(data[sample_index]))
+            amplitude = min(1.0, value / peak) if normalize_data else min(1.0, value)
+        else:
+            wave = math.sin(time_ms * 0.006 + angle * 5.0)
+            amplitude = 0.18 + 0.82 * ((wave + 1.0) * 0.5)
+
+        inner_x = center_x + math.cos(angle) * base_radius
+        inner_y = center_y + math.sin(angle) * base_radius
+        outer_radius = base_radius + amplitude * max_bar_length
+        outer_x = center_x + math.cos(angle) * outer_radius
+        outer_y = center_y + math.sin(angle) * outer_radius
+        pygame.draw.line(
+            surface,
+            color,
+            (round(inner_x), round(inner_y)),
+            (round(outer_x), round(outer_y)),
+            bar_width,
+        )
+
 
 class MainMenu:
     def __init__(self, screen):
@@ -441,7 +493,25 @@ class MainMenu:
                 if hero_size != self.logo_hero.get_width():
                     hero_image = pygame.transform.smoothscale(self.logo_hero, (hero_size, hero_size))
                 hero_rect = hero_image.get_rect(center=(hero_x + self.logo_hero.get_width() // 2, hero_y + self.logo_hero.get_height() // 2))
-                
+
+                ring_bar_count = 128
+                ring_data = []
+                for index in range(ring_bar_count):
+                    angle = (math.tau * index) / ring_bar_count
+                    wave = (math.sin(current_time * 0.012 + angle * 4.0) + 1.0) * 0.5
+                    ring_data.append(0.12 + wave * 0.12 + beat_pulse * (0.58 + wave * 0.30))
+
+                draw_equalizer_ring(
+                    self.screen,
+                    hero_rect.center,
+                    dynamic_data_source=ring_data,
+                    base_radius=hero_image.get_width() // 2 + 10,
+                    bar_count=ring_bar_count,
+                    max_bar_length=42,
+                    bar_width=3,
+                    color=self.ACCENT_COLOR,
+                    normalize_data=False,
+                )
                 self.screen.blit(hero_image, hero_rect)
 
             if self.options_open:
