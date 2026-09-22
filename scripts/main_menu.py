@@ -648,7 +648,7 @@ class MainMenu:
                 # Arcade Keybinds Footer
                 footer_y = self.height - 35
                 pygame.draw.line(self.screen, (30, 32, 45), (0, footer_y - 10), (self.width, footer_y - 10), 1)
-                hud_text = self.font_mono.render("[ ↑ / ↓ / W / S ] NAVIGATE     [ ENTER / CLICK ] SELECT     [ DRAG & DROP ] BEATMAP FILE", True, self.MUTED_COLOR)
+                hud_text = self.font_mono.render("[ ENTER / CLICK ] SELECT     [ DRAG & DROP ] BEATMAP FILE", True, self.MUTED_COLOR)
                 self.screen.blit(hud_text, (100, footer_y))
                                 
                 if mouse_clicked:
