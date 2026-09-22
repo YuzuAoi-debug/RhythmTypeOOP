@@ -1,9 +1,11 @@
 import os
 import math
 import random
+from bisect import bisect_right
 from typing import Optional
 import pygame
 from global_state import GlobalState, get_asset_path, get_fps_target
+from beatmap_parser import BeatmapParser
 
 class MainMenu:
     def __init__(self, screen):
@@ -26,6 +28,8 @@ class MainMenu:
         
         self.playlist = []
         self.now_playing = ""
+        self.menu_beats = []
+        self.menu_started_at = None
         self.current_bg = None
         self.bg_cache = {}
         self.options_open = False
@@ -41,7 +45,7 @@ class MainMenu:
         if os.path.exists(GlobalState.LOGO_PATH):
             try:
                 raw_logo = pygame.image.load(GlobalState.LOGO_PATH).convert_alpha()
-                self.logo_hero = pygame.transform.smoothscale(raw_logo, (340, 340))
+                self.logo_hero = pygame.transform.smoothscale(raw_logo, (390, 390))
                 self.logo_small = pygame.transform.smoothscale(raw_logo, (76, 76))
             except Exception:
                 pass
@@ -91,8 +95,11 @@ class MainMenu:
             self._play_next_song()
         else:
             self.now_playing = "Now Playing ♫ : Menu Track"
+            self.menu_started_at = pygame.time.get_ticks()
             if GlobalState.song_list:
-                self._load_bg(str(GlobalState.song_list[0].get("background_path") or ""))
+                song = GlobalState.song_list[0]
+                self._load_bg(str(song.get("background_path") or ""))
+                self._load_menu_beats(song)
 
     def _play_hover(self):
         if self.hover_sound:
@@ -140,13 +147,21 @@ class MainMenu:
         if self.playlist:
             song = self.playlist.pop(0)
             self.now_playing = f"NOW PLAYING ♫ : {song['title']}"
+            self._load_menu_beats(song)
             self._load_bg(str(song.get("background_path") or ""))
             try:
                 pygame.mixer.music.load(song["audio_path"])
                 pygame.mixer.music.set_volume(GlobalState.music_volume)
                 pygame.mixer.music.play()
+                self.menu_started_at = pygame.time.get_ticks()
             except Exception:
                 self.now_playing = "NOW PLAYING ♫ : (Audio file missing)"
+
+    def _load_menu_beats(self, song):
+        difficulties = song.get("difficulties") or []
+        last_difficulty = difficulties[-1] if difficulties else {}
+        beatmap_path = last_difficulty.get("osu_path", "")
+        self.menu_beats = BeatmapParser.load_osu_beatmap(beatmap_path) if beatmap_path else []
 
     def _save_options(self):
         GlobalState.note_speed = self.temp_speed
@@ -267,7 +282,7 @@ class MainMenu:
             h = int(self.visualizer_bars[i])
             bx = x + i * (bar_w + gap)
             pygame.draw.rect(self.screen, self.ACCENT_COLOR, (bx, y - h, bar_w, h))
-    
+
     def run(self, last_frame=None):
         clock = pygame.time.Clock()
         time_start = pygame.time.get_ticks()
@@ -403,23 +418,31 @@ class MainMenu:
                             
             # Right Hero Showcase
             if self.logo_hero and not self.options_open:
-                hero_x = self.width - 460
-                float_offset = math.sin(pygame.time.get_ticks() * 0.002) * 8
-                hero_y = int(self.height // 2 - 190 + float_offset)
+                hero_x = self.width - 470
+                hero_y = self.height // 2 - 215
+
+                music_pos = pygame.mixer.music.get_pos()
+                if music_pos < 0 and self.menu_started_at is not None:
+                    music_pos = pygame.time.get_ticks() - self.menu_started_at
+                beat_pulse = 0.0
+                beat_age = None
+                if music_pos >= 0 and self.menu_beats:
+                    song_position = music_pos / 1000.0
+                    current_beat = bisect_right(self.menu_beats, song_position) - 1
+                    if current_beat >= 0:
+                        beat_age = song_position - self.menu_beats[current_beat]
+                        if beat_age < 0.24:
+                            beat_pulse = 1.0 - beat_age / 0.24
+                            beat_pulse = beat_pulse * beat_pulse * (3.0 - 2.0 * beat_pulse)
+
+                hero_scale = 1.0 + beat_pulse * 0.08
+                hero_size = int(self.logo_hero.get_width() * hero_scale)
+                hero_image = self.logo_hero
+                if hero_size != self.logo_hero.get_width():
+                    hero_image = pygame.transform.smoothscale(self.logo_hero, (hero_size, hero_size))
+                hero_rect = hero_image.get_rect(center=(hero_x + self.logo_hero.get_width() // 2, hero_y + self.logo_hero.get_height() // 2))
                 
-                # Glowing backplate
-                glow_rect = pygame.Rect(hero_x - 10, hero_y - 10, 360, 360)
-                glow_surf = pygame.Surface((glow_rect.width, glow_rect.height), pygame.SRCALPHA)
-                pygame.draw.rect(glow_surf, (0, 229, 255, 30), (0, 0, glow_rect.width, glow_rect.height), border_radius=24)
-                self.screen.blit(glow_surf, glow_rect.topleft)
-                
-                # Hero logo image
-                self.screen.blit(self.logo_hero, (hero_x, hero_y))
-                
-                # Tagline underneath
-                tagline = self.font_small.render("RHYTHM & MONKEYTYPE HYBRID", True, self.MUTED_COLOR)
-                tagline_rect = tagline.get_rect(center=(hero_x + 170, hero_y + 365))
-                self.screen.blit(tagline, tagline_rect)
+                self.screen.blit(hero_image, hero_rect)
 
             if self.options_open:
                 # Dim background
