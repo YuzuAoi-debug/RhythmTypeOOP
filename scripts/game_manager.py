@@ -72,11 +72,25 @@ class GameManager:
         # Sound effects
         self.hitsound = None
         self.miss_sound = None
+        self.fail_sound = None
+        self.fail_ambient_sound = None
+        
         try:
             self.hitsound = pygame.mixer.Sound(GlobalState.HITSOUND_PATH)
             self.miss_sound = pygame.mixer.Sound(GlobalState.MISS_SOUND_PATH)
             self.hitsound.set_volume(GlobalState.sfx_volume)
             self.miss_sound.set_volume(GlobalState.sfx_volume)
+            
+            fail_path = get_asset_path("gameplay_audio/losesfx.mp3")
+            if os.path.exists(fail_path):
+                self.fail_sound = pygame.mixer.Sound(fail_path)
+                
+            ambient_path = get_asset_path("gameplay_audio/retrolose_sfx.mp3")
+            if os.path.exists(ambient_path):
+                self.fail_ambient_sound = pygame.mixer.Sound(ambient_path)
+            else:
+                print(f"[Audio Warning] Ambient file not found at: {ambient_path}")
+                
         except Exception as e:
             print(f"Warning: Failed to load sound effects: {e}")
 
@@ -206,6 +220,17 @@ class GameManager:
 
     def _show_fail_screen(self, score, max_combo, clock, last_frame=None):
         pygame.mixer.music.stop()
+        
+        if self.fail_sound:
+            self.fail_sound.set_volume(max(0.2, float(GlobalState.sfx_volume)))
+            self.fail_sound.play()
+            
+        self.ambient_channel = None
+        if self.fail_ambient_sound:
+            ambient_vol = max(0.04, min(0.9, float(GlobalState.music_volume) * 0.15))
+            self.fail_ambient_sound.set_volume(ambient_vol)        
+            self.ambient_channel = self.fail_ambient_sound.play(loops=-1, fade_ms=5200)
+            
         retry_rect = pygame.Rect(self.width // 2 - 160, 390, 140, 48)
         menu_rect = pygame.Rect(self.width // 2 + 20, 390, 140, 48)
 
@@ -252,14 +277,20 @@ class GameManager:
                     mouse_clicked = True
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r and (event.mod & pygame.KMOD_CTRL):
+                        if self.fail_ambient_sound:
+                            self.fail_ambient_sound.fadeout(500)
                         return "retry"
                     if event.key in (pygame.K_ESCAPE, pygame.K_m, pygame.K_RETURN):
                         return "menu"
 
             if mouse_clicked:
                 if retry_rect.collidepoint(mouse_pos):
+                    if self.fail_ambient_sound:
+                        self.fail_ambient_sound.fadeout(500)
                     return "retry"
                 if menu_rect.collidepoint(mouse_pos):
+                    if self.fail_ambient_sound:
+                        self.fail_ambient_sound.fadeout(500)
                     return "menu"
 
             time_ms = pygame.time.get_ticks() - time_start
@@ -419,8 +450,14 @@ class GameManager:
                     mouse_clicked = True
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r and (event.mod & pygame.KMOD_CTRL):
+                        if self.fail_ambient_sound:
+                            self.fail_ambient_sound.stop()
+
                         return "retry"
                     if event.key in (pygame.K_ESCAPE, pygame.K_m, pygame.K_RETURN):
+                        if self.fail_ambient_sound:
+                            self.fail_ambient_sound.stop()
+
                         return "menu"
 
             if mouse_clicked:
@@ -1006,7 +1043,7 @@ class GameManager:
                             self.screen.blit(base_tile, (n["x"] - 35, self.lane_y - 35))
 
             # --- MONKEYTYPE-STYLE UPCOMING WORDS GUIDE (Cached) ---
-            hud_y = self.lane_y + 120
+            hud_y = self.lane_y + 200
             
             panel_w = 700
             panel_rect = pygame.Rect(self.width // 2 - panel_w // 2, hud_y - 25, panel_w, 95)

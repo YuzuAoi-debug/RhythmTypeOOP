@@ -658,7 +658,7 @@ class SongSelect:
                            
             # Draw header (fixed at top)
             title_surf = self.font_title.render("SELECT A TRACK", True, self.TEXT_COLOR)
-            self.screen.blit(title_surf, (50, 16))
+            self.screen.blit(title_surf, (50, 22))
 
             # SEARCH BAR (osu! lazer / standard style)
             search_rect = pygame.Rect(50, 64, 650, 42)
@@ -815,7 +815,7 @@ class SongSelect:
             self.screen.set_clip(None)
 
             # BOTTOM-LEFT MODS BAR
-            mods_btn_rect = pygame.Rect(50, self.height - 62, 170, 44)
+            mods_btn_rect = pygame.Rect(50, self.height - 80, 170, 44)
             is_mods_hovered = mods_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
             if is_mods_hovered:
                 curr_hovered_item = "mods_btn"
@@ -845,7 +845,7 @@ class SongSelect:
 
             # Footer Instructions
             esc_surf = self.font_small.render("Press ESC to return / clear search  |  Scroll with Mouse Wheel  |  Press F1 for Mods", True, self.MUTED_COLOR)
-            self.screen.blit(esc_surf, (50, self.height - 18))
+            self.screen.blit(esc_surf, (50, self.height - 25))
 
             # MOD SELECTION MODAL
             if self.show_mods_modal:
