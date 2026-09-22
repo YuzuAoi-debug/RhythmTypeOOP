@@ -23,14 +23,17 @@ class GameManager:
         
         # Fonts (Matching Main Menu Theme)
         from global_state import get_asset_path
+        font_retro = get_asset_path("assets/font/RETROTECH.ttf")
+        font_game = get_asset_path("assets/font/Comfortaa-Bold.ttf")
+               
         try:
-            font_path = get_asset_path("assets/font/RETROTECH.ttf")
-            self.font_large = pygame.font.Font(font_path, 44)
-            self.font_med = pygame.font.Font(font_path, 28)
-            self.font_small = pygame.font.Font(font_path, 18)
-            self.font_guide = pygame.font.Font(font_path, 22)
-            self.font_score = pygame.font.Font(font_path, 48)
-            self.font_combo = pygame.font.Font(font_path, 52)
+            self.font_large = pygame.font.Font(font_game, 36)
+            self.font_med = pygame.font.Font(font_game, 28)
+            self.font_small = pygame.font.Font(font_game, 15)
+            self.font_guide = pygame.font.Font(font_game, 18) 
+            self.font_score = pygame.font.Font(font_game, 40)
+            self.font_combo = pygame.font.Font(font_game, 44)        
+            
         except Exception:
             self.font_large = pygame.font.SysFont("Arial", 44, bold=True)
             self.font_med = pygame.font.SysFont("Arial", 28, bold=True)
@@ -38,7 +41,19 @@ class GameManager:
             self.font_guide = pygame.font.SysFont("Arial", 22, bold=True)
             self.font_score = pygame.font.SysFont("Arial", 48, bold=True)
             self.font_combo = pygame.font.SysFont("Arial", 52, bold=True)
-        
+ 
+        # Defeat / Fail Screen Fonts: Preserved as RETROTECH
+        try:
+            self.font_fail_title = pygame.font.Font(font_retro, 52)
+            self.font_fail_stat = pygame.font.Font(font_retro, 28)
+            self.font_fail_sub = pygame.font.Font(font_retro, 18)
+            self.font_fail_btn = pygame.font.Font(font_retro, 20)
+        except Exception:
+            self.font_fail_title = pygame.font.SysFont("Arial", 52, bold=True)
+            self.font_fail_stat = pygame.font.SysFont("Arial", 28, bold=True)
+            self.font_fail_sub = pygame.font.SysFont("Arial", 18)
+            self.font_fail_btn = pygame.font.SysFont("Arial", 20, bold=True)
+                    
         # Gameplay Constants
         is_hr = "HR" in GlobalState.active_mods
         self.SCROLL_SPEED = 560.0 if is_hr else 400.0
@@ -325,9 +340,9 @@ class GameManager:
                 glitch_y = int(math.cos(time_ms * 0.07) * 3 * pulse)
                 
                 fail_text = "TRACK FAILED"
-                red_surf = self.font_combo.render(fail_text, True, (255, 20, 20))
-                blue_surf = self.font_combo.render(fail_text, True, (0, 255, 255))
-                main_surf = self.font_combo.render(fail_text, True, (255, 230, 230))
+                red_surf = self.font_fail_title.render(fail_text, True, (255, 20, 20))
+                blue_surf = self.font_fail_title.render(fail_text, True, (0, 255, 255))
+                main_surf = self.font_fail_title.render(fail_text, True, (255, 230, 230))
                 
                 red_surf.set_alpha(int(255 * ui_alpha_progress))
                 blue_surf.set_alpha(int(255 * ui_alpha_progress))
