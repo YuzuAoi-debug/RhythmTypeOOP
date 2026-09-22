@@ -37,6 +37,10 @@ class SongSelect:
         self.scroll_y = -max(0.0, self.selected_song_index * 78.0 - 100.0)
         self.target_scroll_y = self.scroll_y
 
+        # Search Bar state (osu! lazer / standard style)
+        self.search_query = ""
+        self.search_focused = False
+
         # Dynamic background state for hovering & smooth transitions
         self.active_bg_index = self.selected_song_index
         self.prev_bg_index = None
@@ -94,6 +98,26 @@ class SongSelect:
         # Start preview playback of selected song immediately
         if 0 <= self.selected_song_index < len(GlobalState.song_list):
             self._play_song_preview(GlobalState.song_list[self.selected_song_index])
+
+    def _get_filtered_songs(self):
+        """Returns list of (original_index, song_dict) matching current search query."""
+        if not self.search_query.strip():
+            return list(enumerate(GlobalState.song_list))
+
+        query = self.search_query.strip().lower()
+        filtered = []
+        for idx, song in enumerate(GlobalState.song_list):
+            title = song.get("title", "").lower()
+            artist = song.get("artist", "").lower()
+            match = (query in title or query in artist)
+            if not match and song.get("difficulties"):
+                for diff in song["difficulties"]:
+                    if query in diff.get("name", "").lower():
+                        match = True
+                        break
+            if match:
+                filtered.append((idx, song))
+        return filtered
 
     def _play_song_preview(self, song):
         if not song or not song.get("audio_path"):
@@ -314,6 +338,8 @@ class SongSelect:
             mouse_pos = pygame.mouse.get_pos()
             mouse_clicked = False
             
+            filtered_songs = self._get_filtered_songs()
+            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return "quit"
@@ -321,31 +347,53 @@ class SongSelect:
                     if event.key == pygame.K_ESCAPE:
                         if self.show_mods_modal:
                             self.show_mods_modal = False
+                        elif self.search_query:
+                            self.search_query = ""
+                            self.search_focused = False
                         else:
                             return "menu"
-                    if event.key == pygame.K_F1:
+                    elif event.key == pygame.K_F1:
                         self._play_click()
                         self.show_mods_modal = not self.show_mods_modal
-
-                    if not self.show_mods_modal:
-                        # Arrow navigation across song list
-                        if event.key in (pygame.K_DOWN, pygame.K_j):
-                            if GlobalState.song_list:
-                                new_idx = (self.selected_song_index + 1) % len(GlobalState.song_list)
+                    elif not self.show_mods_modal:
+                        if event.key == pygame.K_BACKSPACE:
+                            if self.search_query:
+                                self.search_query = self.search_query[:-1]
+                                new_filtered = self._get_filtered_songs()
+                                if new_filtered and not any(i == self.selected_song_index for i, _ in new_filtered):
+                                    self.selected_song_index = new_filtered[0][0]
+                                    self.expanded_song_index = new_filtered[0][0]
+                                    self.selected_diff_index = 0
+                                    self._play_song_preview(new_filtered[0][1])
+                        elif event.key in (pygame.K_DOWN, pygame.K_j):
+                            if filtered_songs:
+                                curr_pos = -1
+                                for pos, (orig_idx, _) in enumerate(filtered_songs):
+                                    if orig_idx == self.selected_song_index:
+                                        curr_pos = pos
+                                        break
+                                next_pos = (curr_pos + 1) % len(filtered_songs)
+                                new_idx = filtered_songs[next_pos][0]
                                 self.selected_song_index = new_idx
                                 self.expanded_song_index = new_idx
                                 self.selected_diff_index = 0
-                                self._play_song_preview(GlobalState.song_list[new_idx])
-                                self.target_scroll_y = -max(0.0, self.selected_song_index * 78.0 - 100.0)
+                                self._play_song_preview(filtered_songs[next_pos][1])
+                                self.target_scroll_y = -max(0.0, next_pos * 78.0 - 100.0)
                         elif event.key in (pygame.K_UP, pygame.K_k):
-                            if GlobalState.song_list:
-                                new_idx = (self.selected_song_index - 1) % len(GlobalState.song_list)
+                            if filtered_songs:
+                                curr_pos = -1
+                                for pos, (orig_idx, _) in enumerate(filtered_songs):
+                                    if orig_idx == self.selected_song_index:
+                                        curr_pos = pos
+                                        break
+                                next_pos = (curr_pos - 1) % len(filtered_songs)
+                                new_idx = filtered_songs[next_pos][0]
                                 self.selected_song_index = new_idx
                                 self.expanded_song_index = new_idx
                                 self.selected_diff_index = 0
-                                self._play_song_preview(GlobalState.song_list[new_idx])
-                                self.target_scroll_y = -max(0.0, self.selected_song_index * 78.0 - 100.0)
-                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                                self._play_song_preview(filtered_songs[next_pos][1])
+                                self.target_scroll_y = -max(0.0, next_pos * 78.0 - 100.0)
+                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                             if 0 <= self.selected_song_index < len(GlobalState.song_list):
                                 sel_song = GlobalState.song_list[self.selected_song_index]
                                 diff_list = sel_song.get("difficulties", [])
@@ -353,9 +401,28 @@ class SongSelect:
                                 res = self._start_song(sel_song, cur_diff)
                                 if res:
                                     return res
+                        elif event.unicode and event.unicode.isprintable():
+                            self.search_query += event.unicode
+                            self.search_focused = True
+                            new_filtered = self._get_filtered_songs()
+                            if new_filtered and not any(i == self.selected_song_index for i, _ in new_filtered):
+                                self.selected_song_index = new_filtered[0][0]
+                                self.expanded_song_index = new_filtered[0][0]
+                                self.selected_diff_index = 0
+                                self._play_song_preview(new_filtered[0][1])
 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mouse_clicked = True
+                    search_rect = pygame.Rect(50, 64, 650, 42)
+                    clear_btn_rect = pygame.Rect(search_rect.right - 34, search_rect.y + 7, 26, 26)
+                    if clear_btn_rect.collidepoint(mouse_pos) and self.search_query and not self.show_mods_modal:
+                        self._play_click()
+                        self.search_query = ""
+                        self.search_focused = True
+                    elif search_rect.collidepoint(mouse_pos) and not self.show_mods_modal:
+                        self._play_click()
+                        self.search_focused = True
+
                 if event.type == pygame.MOUSEWHEEL and not self.show_mods_modal:
                     self.target_scroll_y += event.y * 48.0
                 if event.type == pygame.DROPFILE and not self.show_mods_modal:
@@ -379,7 +446,7 @@ class SongSelect:
 
             # Calculate content height to clamp scrolling (leave room for bottom-left MODS bar)
             total_content_height = 0
-            for i, song in enumerate(GlobalState.song_list):
+            for i, song in filtered_songs:
                 total_content_height += 78
                 if self.expanded_song_index == i:
                     total_content_height += len(song["difficulties"]) * 54 + 10
@@ -389,13 +456,13 @@ class SongSelect:
             self.scroll_y += (self.target_scroll_y - self.scroll_y) * 0.25
 
             # Determine hovered song for dynamic background & preview card
-            clip_rect = pygame.Rect(0, 120, 720, self.height - 195)
+            clip_rect = pygame.Rect(0, 118, 720, self.height - 190)
             curr_hovered_song_idx = -1
             curr_hovered_item = None
             
-            y_offset = 130 + int(self.scroll_y)
+            y_offset = 124 + int(self.scroll_y)
             x_offset = 50
-            for i, song in enumerate(GlobalState.song_list):
+            for i, song in filtered_songs:
                 song_rect = pygame.Rect(x_offset, y_offset, 650, 68)
                 if song_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal:
                     curr_hovered_song_idx = i
@@ -586,19 +653,59 @@ class SongSelect:
                 text_y = play_btn_rect.centery - full_lbl.get_height() // 2
                 self._draw_marquee_text(self.font_diff, btn_text, fg_color, (text_x, text_y), max_label_w, current_time, speed_px_sec=35.0)
 
-                help_txt = self.font_small.render("Click PLAY or press ENTER / SPACE to start", True, self.MUTED_DARK)
+                help_txt = self.font_small.render("Click PLAY or press ENTER to start track", True, self.MUTED_DARK)
                 self.screen.blit(help_txt, (765, 592))
                            
             # Draw header (fixed at top)
             title_surf = self.font_title.render("SELECT A TRACK", True, self.TEXT_COLOR)
-            self.screen.blit(title_surf, (50, 28))
+            self.screen.blit(title_surf, (50, 16))
+
+            # SEARCH BAR (osu! lazer / standard style)
+            search_rect = pygame.Rect(50, 64, 650, 42)
+            is_search_hovered = search_rect.collidepoint(mouse_pos) and not self.show_mods_modal
             
-            esc_surf = self.font_header_sub.render("Press ESC to return  |  Scroll with Mouse Wheel  |  Press F1 for Mods", True, self.MUTED_COLOR)
-            self.screen.blit(esc_surf, (50, 78))
+            search_bg = (24, 24, 34, 235) if is_search_hovered else (18, 18, 26, 220)
+            s_surf = pygame.Surface((650, 42), pygame.SRCALPHA)
+            pygame.draw.rect(s_surf, search_bg, (0, 0, 650, 42), border_radius=10)
+            self.screen.blit(s_surf, search_rect)
+            
+            border_col = self.ACCENT_COLOR if (self.search_focused or self.search_query or is_search_hovered) else (50, 50, 70)
+            border_w = 2 if (self.search_focused or self.search_query) else 1
+            pygame.draw.rect(self.screen, border_col, search_rect, border_w, border_radius=10)
+
+            # Vector Magnifying Glass Icon
+            icon_col = self.ACCENT_COLOR if (self.search_query or self.search_focused) else self.MUTED_COLOR
+            pygame.draw.circle(self.screen, icon_col, (search_rect.x + 22, search_rect.y + 19), 6, 2)
+            pygame.draw.line(self.screen, icon_col, (search_rect.x + 26, search_rect.y + 23), (search_rect.x + 32, search_rect.y + 29), 2)
+
+            # Search text or placeholder
+            if self.search_query:
+                cursor = "|" if (current_time // 500) % 2 == 0 and self.search_focused else ""
+                disp_query = self.search_query + cursor
+                q_surf = self._render_fitted_text(self.font_header_sub, disp_query, self.TEXT_COLOR, 540)
+                self.screen.blit(q_surf, (search_rect.x + 42, search_rect.y + 11))
+                
+                # Clear button (X) on right
+                clear_btn_rect = pygame.Rect(search_rect.right - 34, search_rect.y + 7, 26, 26)
+                is_clear_hovered = clear_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+                if is_clear_hovered:
+                    curr_hovered_item = "search_clear_btn"
+                
+                x_bg = (45, 45, 60) if is_clear_hovered else (30, 30, 42)
+                pygame.draw.rect(self.screen, x_bg, clear_btn_rect, border_radius=6)
+                x_txt = self.font_small.render("✕", True, self.ACCENT_COLOR if is_clear_hovered else self.MUTED_COLOR)
+                self.screen.blit(x_txt, x_txt.get_rect(center=clear_btn_rect.center))
+            else:
+                placeholder = "Type anywhere to search title, artist, mapper..."
+                if self.search_focused:
+                    cursor = "|" if (current_time // 500) % 2 == 0 else ""
+                    placeholder = cursor + placeholder
+                p_surf = self.font_header_sub.render(placeholder, True, self.MUTED_COLOR)
+                self.screen.blit(p_surf, (search_rect.x + 42, search_rect.y + 11))
 
             # Brand logo badge at top right
             brand_base_x = self.width - 310
-            brand_base_y = 28
+            brand_base_y = 20
             brand_font = pygame.font.Font(get_asset_path("assets/font/RETROTECH.ttf"), 30)
             surf_rhythm = brand_font.render("RHYTHM", True, self.TEXT_COLOR)
             surf_type = brand_font.render("TYPE", True, self.ACCENT_COLOR)
@@ -626,73 +733,79 @@ class SongSelect:
             # Clipping area for scrolling song list
             self.screen.set_clip(clip_rect)
 
-            y_offset = 130 + int(self.scroll_y)
+            y_offset = 124 + int(self.scroll_y)
             x_offset = 50
             
             # Dynamic generation of the Accordion list
-            for i, song in enumerate(GlobalState.song_list):
-                song_rect = pygame.Rect(x_offset, y_offset, 650, 68)
-                is_song_hovered = song_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+            if not filtered_songs:
+                empty_card_rect = pygame.Rect(x_offset, y_offset, 650, 110)
+                pygame.draw.rect(self.screen, (24, 24, 34, 220), empty_card_rect, border_radius=10)
+                pygame.draw.rect(self.screen, (50, 50, 70), empty_card_rect, 1, border_radius=10)
                 
-                # Draw Main Song Plate with subtle frosted translucency
-                plate_surf = pygame.Surface((650, 68), pygame.SRCALPHA)
-                plate_color = (42, 42, 58, 235) if is_song_hovered else (24, 24, 34, 220)
-                pygame.draw.rect(plate_surf, plate_color, (0, 0, 650, 68), border_radius=8)
-                self.screen.blit(plate_surf, (x_offset, y_offset))
+                no_match_txt = self.font_header_sub.render(f"No tracks found matching '{self.search_query}'", True, self.MUTED_COLOR)
+                hint_txt = self.font_small.render("Press ESC or click ✕ to clear search filter", True, self.ACCENT_COLOR)
+                self.screen.blit(no_match_txt, no_match_txt.get_rect(center=(empty_card_rect.centerx, empty_card_rect.centery - 14)))
+                self.screen.blit(hint_txt, hint_txt.get_rect(center=(empty_card_rect.centerx, empty_card_rect.centery + 16)))
+            else:
+                for f_idx, (i, song) in enumerate(filtered_songs):
+                    song_rect = pygame.Rect(x_offset, y_offset, 650, 68)
+                    is_song_hovered = song_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+                    
+                    plate_surf = pygame.Surface((650, 68), pygame.SRCALPHA)
+                    plate_color = (42, 42, 58, 235) if is_song_hovered else (24, 24, 34, 220)
+                    pygame.draw.rect(plate_surf, plate_color, (0, 0, 650, 68), border_radius=8)
+                    self.screen.blit(plate_surf, (x_offset, y_offset))
 
-                if self.selected_song_index == i:
-                    pygame.draw.rect(self.screen, self.ACCENT_COLOR, song_rect, 2, border_radius=8)
-                
-                song_text = self._render_fitted_text(self.font_song, song["title"], self.TEXT_COLOR, 600)
-                self.screen.blit(song_text, (x_offset + 20, y_offset + 10))
+                    if self.selected_song_index == i:
+                        pygame.draw.rect(self.screen, self.ACCENT_COLOR, song_rect, 2, border_radius=8)
+                    
+                    song_text = self._render_fitted_text(self.font_song, song["title"], self.TEXT_COLOR, 600)
+                    self.screen.blit(song_text, (x_offset + 20, y_offset + 10))
 
-                diff_badge = self.font_song_sub.render(f"{len(song['difficulties'])} Difficulties", True, self.MUTED_COLOR)
-                self.screen.blit(diff_badge, (x_offset + 20, y_offset + 40))
-                
-                if mouse_clicked and is_song_hovered and not self.show_mods_modal:
-                    self._play_click()
-                    if self.selected_song_index != i:
-                        self.selected_song_index = i
-                        self.expanded_song_index = i
-                        self.selected_diff_index = 0
-                        self._play_song_preview(song)
-                    else:
-                        if self.expanded_song_index == i:
-                            self.expanded_song_index = -1
-                        else:
-                            self.expanded_song_index = i
-                
-                y_offset += 78
-                
-                # Draw Difficulty Sub-menus with specific difficulty-tiered tints (yellow, orange, red, black)
-                if self.expanded_song_index == i:
-                    for d_idx, diff in enumerate(song["difficulties"]):
-                        diff_rect = pygame.Rect(x_offset + 45, y_offset, 605, 46)
-                        is_diff_hovered = diff_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal
-                        is_diff_selected = (self.selected_song_index == i and self.selected_diff_index == d_idx)
-                        
-                        d_bg, d_text_color, d_border = self._get_diff_colors(diff["name"], d_idx, is_diff_hovered)
-                        
-                        d_surf = pygame.Surface((605, 46), pygame.SRCALPHA)
-                        pygame.draw.rect(d_surf, d_bg, (0, 0, 605, 46), border_radius=6)
-                        self.screen.blit(d_surf, (diff_rect.x, diff_rect.y))
-                        
-                        # Border highlighting (accent border if selected or hovered)
-                        border_color = self.ACCENT_COLOR if is_diff_selected else d_border
-                        border_width = 2 if is_diff_selected else 1
-                        pygame.draw.rect(self.screen, border_color, diff_rect, border_width, border_radius=6)
-                        
-                        diff_text = self._render_fitted_text(self.font_diff, diff["name"], d_text_color, 560)
-                        self.screen.blit(diff_text, (diff_rect.x + 22, diff_rect.y + 11))
-                        
-                        # Handle difficulty selection on click (selects difficulty, does NOT start game immediately)
-                        if mouse_clicked and is_diff_hovered and not self.show_mods_modal:
-                            self._play_click()
+                    diff_badge = self.font_song_sub.render(f"{len(song['difficulties'])} Difficulties", True, self.MUTED_COLOR)
+                    self.screen.blit(diff_badge, (x_offset + 20, y_offset + 40))
+                    
+                    if mouse_clicked and is_song_hovered and not self.show_mods_modal:
+                        self._play_click()
+                        if self.selected_song_index != i:
                             self.selected_song_index = i
-                            self.selected_diff_index = d_idx
+                            self.expanded_song_index = i
+                            self.selected_diff_index = 0
+                            self._play_song_preview(song)
+                        else:
+                            if self.expanded_song_index == i:
+                                self.expanded_song_index = -1
+                            else:
+                                self.expanded_song_index = i
+                    
+                    y_offset += 78
+                    
+                    if self.expanded_song_index == i:
+                        for d_idx, diff in enumerate(song["difficulties"]):
+                            diff_rect = pygame.Rect(x_offset + 45, y_offset, 605, 46)
+                            is_diff_hovered = diff_rect.collidepoint(mouse_pos) and clip_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+                            is_diff_selected = (self.selected_song_index == i and self.selected_diff_index == d_idx)
                             
-                        y_offset += 54
-                    y_offset += 10
+                            d_bg, d_text_color, d_border = self._get_diff_colors(diff["name"], d_idx, is_diff_hovered)
+                            
+                            d_surf = pygame.Surface((605, 46), pygame.SRCALPHA)
+                            pygame.draw.rect(d_surf, d_bg, (0, 0, 605, 46), border_radius=6)
+                            self.screen.blit(d_surf, (diff_rect.x, diff_rect.y))
+                            
+                            border_color = self.ACCENT_COLOR if is_diff_selected else d_border
+                            border_width = 2 if is_diff_selected else 1
+                            pygame.draw.rect(self.screen, border_color, diff_rect, border_width, border_radius=6)
+                            
+                            diff_text = self._render_fitted_text(self.font_diff, diff["name"], d_text_color, 560)
+                            self.screen.blit(diff_text, (diff_rect.x + 22, diff_rect.y + 11))
+                            
+                            if mouse_clicked and is_diff_hovered and not self.show_mods_modal:
+                                self._play_click()
+                                self.selected_song_index = i
+                                self.selected_diff_index = d_idx
+                                
+                            y_offset += 54
+                        y_offset += 10
 
             if curr_hovered_item != self.hovered_item and not self.show_mods_modal:
                 self.hovered_item = curr_hovered_item
@@ -729,6 +842,10 @@ class SongSelect:
                     b_txt = self.font_diff.render(m_code, True, self.ACCENT_COLOR)
                     self.screen.blit(b_txt, b_txt.get_rect(center=b_rect.center))
                     badge_x += 48
+
+            # Footer Instructions
+            esc_surf = self.font_small.render("Press ESC to return / clear search  |  Scroll with Mouse Wheel  |  Press F1 for Mods", True, self.MUTED_COLOR)
+            self.screen.blit(esc_surf, (50, self.height - 18))
 
             # MOD SELECTION MODAL
             if self.show_mods_modal:

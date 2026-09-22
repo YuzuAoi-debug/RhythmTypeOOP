@@ -68,6 +68,24 @@ class Conductor:
         except pygame.error:
             pass
 
+    def seek(self, target_sec: float):
+        """Seeks music playback and conductor clock to target_sec in seconds."""
+        if not self.is_playing:
+            return
+
+        try:
+            audio_pos = max(0.0, target_sec / self.time_multiplier)
+            pygame.mixer.music.set_pos(audio_pos)
+        except Exception as e:
+            print(f"Warning: Seek failed: {e}")
+
+        now = time.perf_counter()
+        self.start_time = now - (target_sec / self.time_multiplier)
+        self.total_paused_time = 0.0
+        self.audio_synced = False
+        self.song_position = max(0.0, target_sec)
+        self.song_position_in_beats = self.song_position / self.sec_per_beat
+
     def update(self):
         """Updates song position using high-precision monotonic clock with
         audio offset calibration and zero-jump smoothing.

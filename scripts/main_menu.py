@@ -32,7 +32,7 @@ class MainMenu:
         self.active_slider = None  # 'music', 'sfx', 'offset'
         self.buttons = ["PLAY", "OPTIONS", "EXIT"]
         self.btn_hover_progress = [0.0, 0.0, 0.0]
-        self.keyboard_focus_idx = 0
+        self.keyboard_focus_idx: Optional[int] = 0
         self.hovered_btn = None
         
         # Load logo assets

@@ -409,6 +409,7 @@ class GameManager:
         menu_rect = pygame.Rect(self.width // 2 + 20, 485, 140, 48)
 
         while True:
+            fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
             mouse_pos = pygame.mouse.get_pos()
             mouse_clicked = False
             for event in pygame.event.get():
@@ -448,7 +449,6 @@ class GameManager:
                 self.screen.blit(fade_surf, (0, 0))
 
             if last_frame:
-                fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
                 if fade_progress < 1.0:
                     if not hasattr(self, 'results_trans') or self.results_trans['time_start'] != time_start:
                         mx, my = pygame.mouse.get_pos()
@@ -590,7 +590,11 @@ class GameManager:
                 char_index = 0
 
         conductor = Conductor(bpm=song_data.get("bpm", 130.0))
-        conductor.start_song()
+        
+        # Countdown & Skip Intro State Variables
+        countdown_timer = 3.0
+        countdown_active = True
+        first_note_time = hit_times[0] if hit_times else 999.0
 
         score = 0
         combo = 0
@@ -648,13 +652,25 @@ class GameManager:
         running = True
         while running:
             dt = clock.tick(target_fps) / 1000.0
-            conductor.update()
+            mouse_pos = pygame.mouse.get_pos()
 
             speed_multiplier = GlobalState.note_speed / 9.0
             current_speed = self.SCROLL_SPEED * speed_multiplier
             max_travel_time = self.SPAWN_DISTANCE / current_speed
+            intro_end_time = max(0.0, first_note_time - max_travel_time - 0.8)
 
-            current_time = conductor.song_position
+            if countdown_active:
+                countdown_timer -= dt
+                current_time = -max(0.0, countdown_timer)
+                if countdown_timer <= 0:
+                    countdown_timer = 0.0
+                    countdown_active = False
+                    conductor.start_song()
+            else:
+                conductor.update()
+                current_time = conductor.song_position
+
+            can_skip_intro = (not countdown_active and current_time < intro_end_time and intro_end_time > 2.0)
 
             # Check missed notes at head of queue
             while current_note_idx < len(notes):
@@ -690,6 +706,17 @@ class GameManager:
                 if event.type == pygame.QUIT:
                     conductor.stop()
                     return "quit"
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    skip_rect = pygame.Rect(self.width // 2 - 130, self.height - 110, 260, 44)
+                    if skip_rect.collidepoint(event.pos):
+                        if countdown_active:
+                            countdown_active = False
+                            countdown_timer = 0.0
+                            conductor.start_song()
+                            if intro_end_time > 2.0:
+                                conductor.seek(intro_end_time)
+                        elif can_skip_intro:
+                            conductor.seek(intro_end_time)
                 elif event.type == pygame.KEYDOWN:
                     # Instant track retry via Ctrl + R
                     if event.key == pygame.K_r and (event.mod & pygame.KMOD_CTRL):
@@ -701,6 +728,18 @@ class GameManager:
                         if pause_result != "resume":
                             conductor.stop()
                             return "quit" if pause_result == "quit" else "play" if pause_result == "retry" else "menu"
+                        continue
+
+                    # SPACE key skips countdown or intro
+                    if event.key == pygame.K_SPACE:
+                        if countdown_active:
+                            countdown_active = False
+                            countdown_timer = 0.0
+                            conductor.start_song()
+                            if intro_end_time > 2.0:
+                                conductor.seek(intro_end_time)
+                        elif can_skip_intro:
+                            conductor.seek(intro_end_time)
                         continue
 
                     # Filter modifier and navigation keys
@@ -1049,6 +1088,36 @@ class GameManager:
                 if base_judgement:
                     base_judgement.set_alpha(current_alpha)
                     self.screen.blit(base_judgement, base_judgement.get_rect(center=(self.target_x, self.lane_y - 90 + feedback_y_offset)))
+
+            # --- Countdown Overlay ---
+            if countdown_active and countdown_timer > 0:
+                count_num = math.ceil(countdown_timer)
+                count_str = str(count_num) if count_num > 0 else "GO!"
+
+                cnt_font = pygame.font.SysFont("Arial", 110, bold=True)
+                cnt_surf = cnt_font.render(count_str, True, self.ACCENT_COLOR)
+                cnt_rect = cnt_surf.get_rect(center=(self.width // 2, self.height // 2 - 20))
+                self.screen.blit(cnt_surf, cnt_rect)
+
+                cnt_sub = self.font_small.render("GET READY!   |   Press SPACE or Click to Skip", True, self.TEXT_COLOR)
+                self.screen.blit(cnt_sub, cnt_sub.get_rect(center=(self.width // 2, self.height // 2 + 50)))
+
+            # --- Skip Intro Button ---
+            elif can_skip_intro:
+                skip_rect = pygame.Rect(self.width // 2 - 130, self.height - 110, 260, 44)
+                is_skip_hovered = skip_rect.collidepoint(mouse_pos)
+
+                s_bg = self.ACCENT_COLOR if is_skip_hovered else (24, 24, 34)
+                s_border = (120, 240, 255) if is_skip_hovered else self.ACCENT_COLOR
+                s_fg = (10, 10, 15) if is_skip_hovered else self.ACCENT_COLOR
+
+                s_surf = pygame.Surface((260, 44), pygame.SRCALPHA)
+                pygame.draw.rect(s_surf, (*s_bg, 230), (0, 0, 260, 44), border_radius=10)
+                self.screen.blit(s_surf, skip_rect)
+                pygame.draw.rect(self.screen, s_border, skip_rect, 2, border_radius=10)
+
+                txt = self.font_guide.render("SKIP INTRO  [SPACE]", True, s_fg)
+                self.screen.blit(txt, txt.get_rect(center=skip_rect.center))
 
 
             if last_frame:
