@@ -90,6 +90,7 @@ class MainMenu:
         self.btn_hover_progress = [0.0, 0.0, 0.0]
         self.keyboard_focus_idx: Optional[int] = 0
         self.hovered_btn = None
+        self.logo_press_progress = 0.0
         
         # Load logo assets
         self.logo_hero = None
@@ -166,6 +167,14 @@ class MainMenu:
             try:
                 self.click_sound.set_volume(GlobalState.sfx_volume)
                 self.click_sound.play()
+            except Exception:
+                pass
+
+    def _play_key_press(self):
+        if self.preview_sound:
+            try:
+                self.preview_sound.set_volume(GlobalState.sfx_volume)
+                self.preview_sound.play()
             except Exception:
                 pass
 
@@ -360,6 +369,7 @@ class MainMenu:
         
         fps_rect = pygame.Rect(panel_rect.x + 35, panel_rect.y + 395, 470, 40)
         close_opt_rect = pygame.Rect(panel_rect.x + 35, panel_rect.y + 450, 470, 44)
+        logo_hit_rect = pygame.Rect(100, 75, 76, 76)
 
         running = True
         while running:
@@ -394,7 +404,10 @@ class MainMenu:
                             self.hovered_btn = None
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mouse_clicked = True
-                    if self.options_open:
+                    if self.logo_small and logo_hit_rect.collidepoint(event.pos):
+                        self.logo_press_progress = 1.0
+                        self._play_key_press()
+                    elif self.options_open:
                         if music_slider_rect.inflate(0, 18).collidepoint(mouse_pos):
                             self.active_slider = "music"
                         elif sfx_slider_rect.inflate(0, 18).collidepoint(mouse_pos):
@@ -431,7 +444,20 @@ class MainMenu:
 
             # Left Branding & Track Info
             if self.logo_small:
-                self.screen.blit(self.logo_small, (100, 75))
+                self.logo_press_progress = max(0.0, self.logo_press_progress - 0.12)
+                logo_scale = 1.0 - self.logo_press_progress * 0.14
+                logo_size = max(1, int(self.logo_small.get_width() * logo_scale))
+                logo_image = self.logo_small
+                if logo_size != self.logo_small.get_width():
+                    logo_image = pygame.transform.smoothscale(self.logo_small, (logo_size, logo_size))
+                logo_rect = logo_image.get_rect(center=logo_hit_rect.center)
+                self.screen.blit(logo_image, logo_rect)
+                click_me = self.font_mono.render("CLICK ME", True, self.ACCENT_COLOR)
+                click_me = pygame.transform.rotate(click_me, 45)
+                click_me_rect = click_me.get_rect(
+                    bottomright=(logo_rect.left + 18, logo_rect.top + 20)
+                )
+                self.screen.blit(click_me, click_me_rect)
                 logo_x, logo_y = 190, 76
             else:
                 logo_x, logo_y = 100, 100
