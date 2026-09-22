@@ -594,6 +594,7 @@ class GameManager:
         # Countdown & Skip Intro State Variables
         countdown_timer = 3.0
         countdown_active = True
+        intro_skipped = False
         first_note_time = hit_times[0] if hit_times else 999.0
 
         score = 0
@@ -665,12 +666,12 @@ class GameManager:
                 if countdown_timer <= 0:
                     countdown_timer = 0.0
                     countdown_active = False
-                    conductor.start_song()
+                    conductor.start_song(0.0)
             else:
                 conductor.update()
                 current_time = conductor.song_position
 
-            can_skip_intro = (not countdown_active and current_time < intro_end_time and intro_end_time > 2.0)
+            can_skip_intro = (not countdown_active and not intro_skipped and current_time < intro_end_time and intro_end_time > 2.0)
 
             # Check missed notes at head of queue
             while current_note_idx < len(notes):
@@ -708,14 +709,18 @@ class GameManager:
                     return "quit"
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     skip_rect = pygame.Rect(self.width // 2 - 130, self.height - 110, 260, 44)
-                    if skip_rect.collidepoint(event.pos):
+                    if (countdown_active or can_skip_intro) and skip_rect.collidepoint(event.pos):
                         if countdown_active:
                             countdown_active = False
                             countdown_timer = 0.0
-                            conductor.start_song()
                             if intro_end_time > 2.0:
-                                conductor.seek(intro_end_time)
+                                intro_skipped = True
+                                conductor.start_song(intro_end_time)
+                            else:
+                                conductor.start_song(0.0)
                         elif can_skip_intro:
+                            intro_skipped = True
+                            can_skip_intro = False
                             conductor.seek(intro_end_time)
                 elif event.type == pygame.KEYDOWN:
                     # Instant track retry via Ctrl + R
@@ -735,10 +740,14 @@ class GameManager:
                         if countdown_active:
                             countdown_active = False
                             countdown_timer = 0.0
-                            conductor.start_song()
                             if intro_end_time > 2.0:
-                                conductor.seek(intro_end_time)
+                                intro_skipped = True
+                                conductor.start_song(intro_end_time)
+                            else:
+                                conductor.start_song(0.0)
                         elif can_skip_intro:
+                            intro_skipped = True
+                            can_skip_intro = False
                             conductor.seek(intro_end_time)
                         continue
 

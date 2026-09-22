@@ -14,6 +14,7 @@ class Conductor:
         self.song_position_in_beats = 0.0
         
         self.start_time = 0.0
+        self.audio_start_pos = 0.0
         self.total_paused_time = 0.0
         self.pause_start_time = 0.0
         
@@ -22,19 +23,21 @@ class Conductor:
         self.audio_synced = False
         self.audio_sync_offset = 0.0
 
-    def start_song(self):
-        """Starts song playback and resets synchronization timers."""
+    def start_song(self, start_sec: float = 0.0):
+        """Starts song playback from start_sec (in seconds) and resets synchronization timers."""
+        self.audio_start_pos = max(0.0, start_sec)
         self.start_time = time.perf_counter()
         self.total_paused_time = 0.0
-        self.song_position = 0.0
-        self.song_position_in_beats = 0.0
+        self.song_position = self.audio_start_pos
+        self.song_position_in_beats = self.song_position / self.sec_per_beat
         self.is_playing = True
         self.is_paused = False
         self.audio_synced = False
         self.audio_sync_offset = 0.0
 
         try:
-            pygame.mixer.music.play()
+            audio_start = max(0.0, self.audio_start_pos / self.time_multiplier)
+            pygame.mixer.music.play(start=audio_start)
         except pygame.error as e:
             print(f"Warning: Failed to play music: {e}")
 
@@ -73,18 +76,19 @@ class Conductor:
         if not self.is_playing:
             return
 
-        try:
-            audio_pos = max(0.0, target_sec / self.time_multiplier)
-            pygame.mixer.music.set_pos(audio_pos)
-        except Exception as e:
-            print(f"Warning: Seek failed: {e}")
-
-        now = time.perf_counter()
-        self.start_time = now - (target_sec / self.time_multiplier)
+        self.audio_start_pos = max(0.0, target_sec)
+        self.start_time = time.perf_counter()
         self.total_paused_time = 0.0
         self.audio_synced = False
-        self.song_position = max(0.0, target_sec)
+        self.audio_sync_offset = 0.0
+        self.song_position = self.audio_start_pos
         self.song_position_in_beats = self.song_position / self.sec_per_beat
+
+        try:
+            audio_pos = max(0.0, self.audio_start_pos / self.time_multiplier)
+            pygame.mixer.music.play(start=audio_pos)
+        except Exception as e:
+            print(f"Warning: Seek failed: {e}")
 
     def update(self):
         """Updates song position using high-precision monotonic clock with
@@ -95,14 +99,13 @@ class Conductor:
 
         now = time.perf_counter()
         elapsed = max(0.0, now - self.start_time - self.total_paused_time)
-        song_elapsed = elapsed * self.time_multiplier
+        song_elapsed = self.audio_start_pos + (elapsed * self.time_multiplier)
         
         # Check Pygame mixer position to calibrate initial buffer delay
         raw_pos_ms = pygame.mixer.music.get_pos()
         if raw_pos_ms > 0 and not self.audio_synced:
-            # Calibrate hardware audio start delay once audio starts flowing
-            raw_pos_sec = (raw_pos_ms / 1000.0) * self.time_multiplier
-            self.audio_sync_offset = song_elapsed - raw_pos_sec
+            hardware_pos = self.audio_start_pos + (raw_pos_ms / 1000.0) * self.time_multiplier
+            self.audio_sync_offset = song_elapsed - hardware_pos
             self.audio_synced = True
 
         # Apply calibrated audio offset + user custom audio offset setting
