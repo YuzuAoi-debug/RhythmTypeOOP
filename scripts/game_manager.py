@@ -7,6 +7,7 @@ from global_state import GlobalState, get_fps_target
 from conductor import Conductor
 from beatmap_parser import BeatmapParser
 from word_generator import WordGenerator
+import score_db
 
 class GameManager:
     def __init__(self, screen):
@@ -30,18 +31,36 @@ class GameManager:
             self.font_large = pygame.font.Font(font_game, 36)
             self.font_med = pygame.font.Font(font_game, 28)
             self.font_small = pygame.font.Font(font_game, 15)
+            self.font_mono = pygame.font.Font(font_game, 12)
             self.font_guide = pygame.font.Font(font_game, 18) 
             self.font_score = pygame.font.Font(font_game, 40)
-            self.font_combo = pygame.font.Font(font_game, 44)        
-            
+            self.font_combo = pygame.font.Font(font_game, 44)
+            # Result screen fonts (cached here to avoid per-call creation)
+            self.font_res_grade  = pygame.font.Font(font_game, 110)
+            self.font_res_score  = pygame.font.Font(font_game, 38)
+            self.font_res_stat   = pygame.font.Font(font_game, 20)
+            self.font_res_label  = pygame.font.Font(font_game, 13)
+            self.font_res_header = pygame.font.Font(font_game, 16)
+            self.font_res_title  = pygame.font.Font(font_game, 22)
+            self.font_res_artist = pygame.font.Font(font_game, 14)
+            self.font_res_hint   = pygame.font.Font(font_game, 13)
         except Exception:
             self.font_large = pygame.font.SysFont("Arial", 44, bold=True)
             self.font_med = pygame.font.SysFont("Arial", 28, bold=True)
             self.font_small = pygame.font.SysFont("Arial", 16)
+            self.font_mono = pygame.font.SysFont("Arial", 12)
             self.font_guide = pygame.font.SysFont("Arial", 22, bold=True)
             self.font_score = pygame.font.SysFont("Arial", 48, bold=True)
             self.font_combo = pygame.font.SysFont("Arial", 52, bold=True)
- 
+            self.font_res_grade  = pygame.font.SysFont("Arial", 110, bold=True)
+            self.font_res_score  = pygame.font.SysFont("Arial",  38, bold=True)
+            self.font_res_stat   = pygame.font.SysFont("Arial",  20, bold=True)
+            self.font_res_label  = pygame.font.SysFont("Arial",  13)
+            self.font_res_header = pygame.font.SysFont("Arial",  16)
+            self.font_res_title  = pygame.font.SysFont("Arial",  22, bold=True)
+            self.font_res_artist = pygame.font.SysFont("Arial",  14)
+            self.font_res_hint   = pygame.font.SysFont("Arial",  13)
+
         # Defeat / Fail Screen Fonts: Preserved as RETROTECH
         try:
             self.font_fail_title = pygame.font.Font(font_retro, 52)
@@ -406,23 +425,20 @@ class GameManager:
 
     def _show_results(self, score, max_combo, timing_errors, counts, ur_value, clock, last_frame=None):
         pygame.mixer.music.stop()
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
         time_start = pygame.time.get_ticks()
-        fade_duration = 600.0
+
         c300 = counts["perfect"]
         c100 = counts["great"]
-        c50 = counts["good"]
+        c50  = counts["good"]
         cmiss = counts["miss"]
         total = max(1, c300 + c100 + c50 + cmiss)
 
-        # Standard accuracy formula: (300*c300 + 100*c100 + 50*c50) / (300*total)
+        # Standard accuracy formula
         accuracy = (300 * c300 + 100 * c100 + 50 * c50) / (300 * total)
-
         ratio_300 = c300 / total
-        ratio_50 = c50 / total
+        ratio_50  = c50  / total
 
-        # Official grading rules:
+        # Grade calculation
         if c300 == total and cmiss == 0:
             grade = "SS"
         elif ratio_300 > 0.90 and ratio_50 < 0.01 and cmiss == 0:
@@ -436,13 +452,209 @@ class GameManager:
         else:
             grade = "D"
 
-        retry_rect = pygame.Rect(self.width // 2 - 160, 485, 140, 48)
-        menu_rect = pygame.Rect(self.width // 2 + 20, 485, 140, 48)
+        # Grade color palette (osu!lazer inspired)
+        GRADE_COLORS = {
+            "SS": (255, 215,  50),
+            "S":  (255, 215,  50),
+            "A":  ( 90, 230, 120),
+            "B":  ( 80, 170, 255),
+            "C":  (200, 120, 255),
+            "D":  (255,  70,  70),
+        }
+        grade_color = GRADE_COLORS.get(grade, self.ACCENT_COLOR)
+
+        # Glow color (desaturated version for ambient)
+        gc = grade_color
+        glow_color = (gc[0], gc[1], gc[2])
+
+        # Song metadata
+        song_data  = GlobalState.selected_song_data
+        song_title = song_data.get("title", "Unknown Track")
+        song_artist = song_data.get("artist", "")
+        diff_name  = song_data.get("diff_name", "")
+        bg_path    = song_data.get("background_path", "")
+
+        mod_str = " + ".join(sorted(GlobalState.active_mods)) if GlobalState.active_mods else "No Mods"
+        mult    = GlobalState.get_score_multiplier()
+
+        # ── Layout constants ────────────────────────────────────────────────
+        W, H = self.width, self.height
+        PANEL_TOP    = 72          # below header strip
+        PANEL_BOTTOM = H - 80      # above button strip
+        PANEL_H      = PANEL_BOTTOM - PANEL_TOP
+        LEFT_W       = int(W * 0.46)  # left panel width
+        RIGHT_X      = LEFT_W + 24
+        RIGHT_W      = W - RIGHT_X - 20
+        DIVIDER_X    = LEFT_W + 12
+
+        # ── Pre-render background ───────────────────────────────────────────
+        bg_surf = None
+        if bg_path:
+            try:
+                raw = pygame.image.load(bg_path).convert()
+                bg_surf = pygame.transform.smoothscale(raw, (W, H))
+            except Exception:
+                bg_surf = None
+
+        # Blurred-dark overlay layers
+        bg_dark = pygame.Surface((W, H), pygame.SRCALPHA)
+        bg_dark.fill((8, 8, 14, 220))
+
+        # ── Floating star particles ─────────────────────────────────────────
+        stars = []
+        for _ in range(70):
+            stars.append({
+                "x":     random.uniform(0, W),
+                "y":     random.uniform(0, H),
+                "vy":    random.uniform(-25, -8),
+                "vx":    random.uniform(-6, 6),
+                "size":  random.uniform(1.2, 3.8),
+                "alpha": random.randint(80, 200),
+                "phase": random.uniform(0, math.pi * 2),
+                "color": random.choice([
+                    grade_color,
+                    self.ACCENT_COLOR,
+                    (255, 255, 255),
+                ]),
+            })
+
+        # ── Pre-create large grade font ─────────────────────────────────────
+        font_grade   = self.font_res_grade
+        font_score   = self.font_res_score
+        font_stat    = self.font_res_stat
+        font_label   = self.font_res_label
+        font_header  = self.font_res_header
+        font_title   = self.font_res_title
+        font_artist  = self.font_res_artist
+        font_hint    = self.font_res_hint
+
+        # ── Glow helper ─────────────────────────────────────────────────────
+        def draw_glow_text(surf_dest, text, font, color, cx, cy, glow_radius=14, glow_passes=3):
+            for r in range(glow_radius, 0, -glow_radius // glow_passes):
+                alpha = int(120 * (1.0 - r / glow_radius))
+                glow_s = font.render(text, True, color)
+                glow_s.set_alpha(alpha)
+                for dx in (-r, 0, r):
+                    for dy in (-r, 0, r):
+                        surf_dest.blit(glow_s, glow_s.get_rect(center=(cx + dx, cy + dy)))
+            main_s = font.render(text, True, color)
+            surf_dest.blit(main_s, main_s.get_rect(center=(cx, cy)))
+
+        # ── Rounded rect helper ─────────────────────────────────────────────
+        def draw_rounded_rect_alpha(surf_dest, rect, color_rgba, radius=12):
+            s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+            pygame.draw.rect(s, color_rgba, s.get_rect(), border_radius=radius)
+            surf_dest.blit(s, rect.topleft)
+
+        def draw_rounded_border(surf_dest, rect, color, width=2, radius=12):
+            pygame.draw.rect(surf_dest, color, rect, width, border_radius=radius)
+
+        # ── Hit-chip helper ─────────────────────────────────────────────────
+        CHIP_COLORS = {
+            "PERFECT": ((0, 229, 255),   "300"),
+            "GREAT":   ((100, 220, 255), "100"),
+            "GOOD":    ((255, 190,  50), "50"),
+            "MISS":    ((255,  70,  80), "0"),
+        }
+
+        def draw_judgment_card(surf_dest, rect, label, value, fg_color, ease_factor):
+            draw_rounded_rect_alpha(surf_dest, rect, (18, 18, 28, int(220 * ease_factor)), radius=10)
+            draw_rounded_border(surf_dest, rect, (*fg_color, int(80 * ease_factor)), width=1, radius=10)
+            # Left vertical accent strip
+            pill_rect = pygame.Rect(rect.x + 8, rect.y + 10, 5, rect.height - 20)
+            pygame.draw.rect(surf_dest, (*fg_color, int(230 * ease_factor)), pill_rect, border_radius=3)
+            # Label & score tier
+            pts_tier = CHIP_COLORS.get(label, (fg_color, ""))[1]
+            lbl_text = f"{label}  ({pts_tier})" if pts_tier else label
+            lbl_s = font_label.render(lbl_text, True, fg_color)
+            lbl_s.set_alpha(int(240 * ease_factor))
+            surf_dest.blit(lbl_s, (rect.x + 22, rect.y + 11))
+            # Ratio
+            pct_s = font_hint.render(f"{value / total * 100:.1f}%", True, self.MUTED_COLOR)
+            pct_s.set_alpha(int(180 * ease_factor))
+            surf_dest.blit(pct_s, (rect.x + 22, rect.y + 30))
+            # Big value digits
+            val_s = font_stat.render(f"{value:,}", True, (245, 245, 255))
+            val_s.set_alpha(int(255 * ease_factor))
+            surf_dest.blit(val_s, val_s.get_rect(midright=(rect.right - 16, rect.centery)))
+
+        # ── Accuracy arc helper ─────────────────────────────────────────────
+        def draw_accuracy_arc(surf_dest, cx, cy, radius, pct, color, width=6):
+            START_ANGLE = math.radians(220)
+            ARC_SPAN    = math.radians(260)
+            steps = 70
+            end_step = int(steps * pct)
+            for i in range(steps):
+                a0 = START_ANGLE - (ARC_SPAN / steps) * i
+                a1 = START_ANGLE - (ARC_SPAN / steps) * (i + 1)
+                t  = i / max(1, steps - 1)
+                r_c = int(color[0] * t + self.ACCENT_COLOR[0] * (1 - t))
+                g_c = int(color[1] * t + self.ACCENT_COLOR[1] * (1 - t))
+                b_c = int(color[2] * t + self.ACCENT_COLOR[2] * (1 - t))
+                seg_color = (r_c, g_c, b_c) if i < end_step else (35, 35, 50)
+                x0 = cx + math.cos(a0) * radius
+                y0 = cy - math.sin(a0) * radius
+                x1 = cx + math.cos(a1) * radius
+                y1 = cy - math.sin(a1) * radius
+                if abs(x1 - x0) > 0.5 or abs(y1 - y0) > 0.5:
+                    pygame.draw.line(surf_dest, seg_color, (int(x0), int(y0)), (int(x1), int(y1)), width)
+
+        # ── Save personal best ──────────────────────────────────────────────
+        is_new_pb = self._save_score(score, accuracy, grade, max_combo, counts)
+
+        # ── Grade spring-bounce state ───────────────────────────────────────
+        grade_bounce_vel = 0.0
+        grade_bounce_pos = 0.0
+        SPRING_K    = 280.0
+        SPRING_DAMP = 14.0
+        if last_frame and not hasattr(self, 'results_trans'):
+            mx, my = pygame.mouse.get_pos()
+            trans_tiles = []
+            for ty in range(0, H, 40):
+                for tx in range(0, W, 40):
+                    cx2, cy2 = tx + 20, ty + 20
+                    dist = math.hypot(cx2 - mx, cy2 - my)
+                    trans_tiles.append({
+                        'x': tx, 'y': ty, 'dist': dist,
+                        'vx': (cx2 - mx) / (dist + 1) * random.uniform(200, 900),
+                        'vy': (cy2 - my) / (dist + 1) * random.uniform(200, 900),
+                        'delay': dist / 1800.0,
+                    })
+            self.results_trans = {'tiles': trans_tiles, 'mx': mx, 'my': my, 'time_start': time_start}
+
+        # Button layout (bottom bar)
+        BTN_Y    = H - 44
+        BTN_H    = 42
+        BTN_W    = 160
+        retry_rect = pygame.Rect(W // 2 - BTN_W - 12, BTN_Y - BTN_H // 2, BTN_W, BTN_H)
+        menu_rect  = pygame.Rect(W // 2 + 12,         BTN_Y - BTN_H // 2, BTN_W, BTN_H)
+
+        dt_loop = 1.0 / 60.0
+        display_score = 0.0
+
+        mean_err = (sum(timing_errors) / len(timing_errors)) if timing_errors else 0.0
 
         while True:
-            fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
-            mouse_pos = pygame.mouse.get_pos()
+            time_ms      = pygame.time.get_ticks() - time_start
+            fade_progress = min(1.0, time_ms / 700.0)
+            ease_p       = 1.0 - (1.0 - fade_progress) ** 3
+            mouse_pos    = pygame.mouse.get_pos()
             mouse_clicked = False
+
+            # Animated score counter
+            display_score += (score - display_score) * min(1.0, dt_loop * 6.0)
+
+            # Grade spring bounce
+            if fade_progress < 1.0:
+                target_pos = 0.0
+                spring_force = -SPRING_K * (grade_bounce_pos - target_pos)
+                damping_force = -SPRING_DAMP * grade_bounce_vel
+                grade_bounce_vel += (spring_force + damping_force) * dt_loop
+                grade_bounce_pos += grade_bounce_vel * dt_loop
+                if time_ms < 50:
+                    grade_bounce_pos = -50.0
+                    grade_bounce_vel = 120.0
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return "quit"
@@ -452,12 +664,10 @@ class GameManager:
                     if event.key == pygame.K_r and (event.mod & pygame.KMOD_CTRL):
                         if self.fail_ambient_sound:
                             self.fail_ambient_sound.stop()
-
                         return "retry"
                     if event.key in (pygame.K_ESCAPE, pygame.K_m, pygame.K_RETURN):
                         if self.fail_ambient_sound:
                             self.fail_ambient_sound.stop()
-
                         return "menu"
 
             if mouse_clicked:
@@ -466,74 +676,399 @@ class GameManager:
                 if menu_rect.collidepoint(mouse_pos):
                     return "menu"
 
-            self.screen.fill(self.BG_COLOR)
-            self._draw_centered("RESULTS", self.font_med, self.TEXT_COLOR, 70)
-            self._draw_centered(grade, pygame.font.SysFont("Arial", 90, bold=True), self.ACCENT_COLOR, 175)
-            self._draw_centered(f"Accuracy  {accuracy * 100:.2f}%", self.font_med, self.TEXT_COLOR, 270)
-            self._draw_centered(f"Score  {int(score):06d}    Max combo  {max_combo}x", self.font_small, self.TEXT_COLOR, 315)
-            self._draw_centered(f"PERFECT {counts['perfect']}   GREAT {counts['great']}   GOOD {counts['good']}   MISS {counts['miss']}", self.font_small, self.MUTED_COLOR, 355)
-            mod_str = " ".join(sorted(GlobalState.active_mods)) if GlobalState.active_mods else "None"
-            mult = GlobalState.get_score_multiplier()
-            self._draw_centered(f"UR: {ur_value:.1f}  |  Mods: {mod_str} ({mult:.2f}x)", self.font_small, self.MUTED_COLOR, 390)
-            self._draw_centered("CTRL+R to retry   |   ENTER / ESC to menu", self.font_small, (80, 80, 110), 440)
+            # ── Background ──────────────────────────────────────────────────
+            if bg_surf:
+                self.screen.blit(bg_surf, (0, 0))
+                self.screen.blit(bg_dark, (0, 0))
+            else:
+                self.screen.fill((10, 10, 16))
 
-            self._draw_button("RETRY", retry_rect, retry_rect.collidepoint(mouse_pos))
-            self._draw_button("MENU", menu_rect, menu_rect.collidepoint(mouse_pos))
+            # ── Tile-burst transition ────────────────────────────────────────
+            if last_frame and fade_progress < 1.0 and hasattr(self, 'results_trans'):
+                fp = fade_progress
+                for t in self.results_trans['tiles']:
+                    local_p = (fp - t['delay']) / 0.45
+                    if local_p <= 0:
+                        self.screen.blit(last_frame, (t['x'], t['y']),
+                                         pygame.Rect(t['x'], t['y'], 40, 40))
+                    elif local_p < 1:
+                        ep = 1.0 - (1.0 - local_p) ** 3
+                        nx = t['x'] + t['vx'] * ep
+                        ny = t['y'] + t['vy'] * ep
+                        s = int(40 * (1.0 - ep))
+                        if s > 0:
+                            self.screen.blit(last_frame,
+                                             (int(nx + 20 - s/2), int(ny + 20 - s/2)),
+                                             pygame.Rect(t['x'], t['y'], s, s))
+                shock_surf = pygame.Surface((W, H), pygame.SRCALPHA)
+                sr = fp * 2000
+                st = int(max(1, 200 * (1.0 - fp)))
+                if sr > 0:
+                    pygame.draw.circle(shock_surf,
+                                       (0, 229, 255, int(255 * (1.0 - fp))),
+                                       (self.results_trans['mx'], self.results_trans['my']),
+                                       int(sr), st)
+                self.screen.blit(shock_surf, (0, 0))
+            elif fade_progress >= 1.0:
+                last_frame = None
 
-            if fade_progress < 1.0:
-                fade_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-                fade_surf.fill((0, 0, 0, int(255 * (1.0 - fade_progress))))
-                self.screen.blit(fade_surf, (0, 0))
+            # ── Floating star particles ──────────────────────────────────────
+            pulse_t = time_ms * 0.001
+            for star in stars:
+                star["x"] += star["vx"] * dt_loop
+                star["y"] += star["vy"] * dt_loop
+                if star["y"] < -10:
+                    star["y"] = H + 10
+                    star["x"] = random.uniform(0, W)
+                pulse = (math.sin(pulse_t + star["phase"]) + 1.0) * 0.5
+                a     = int(star["alpha"] * (0.5 + 0.5 * pulse) * ease_p)
+                sz    = max(1, int(star["size"]))
+                ss    = pygame.Surface((sz * 2, sz * 2), pygame.SRCALPHA)
+                pygame.draw.circle(ss, (*star["color"], a), (sz, sz), sz)
+                self.screen.blit(ss, (int(star["x"]) - sz, int(star["y"]) - sz))
 
-            if last_frame:
-                if fade_progress < 1.0:
-                    if not hasattr(self, 'results_trans') or self.results_trans['time_start'] != time_start:
-                        mx, my = pygame.mouse.get_pos()
-                        trans_tiles = []
-                        for y in range(0, self.height, 40):
-                            for x in range(0, self.width, 40):
-                                cx = x + 20
-                                cy = y + 20
-                                dist = math.hypot(cx - mx, cy - my)
-                                trans_tiles.append({
-                                    'x': x, 'y': y, 'dist': dist,
-                                    'vx': (cx - mx) / (dist + 1) * random.uniform(200, 900),
-                                    'vy': (cy - my) / (dist + 1) * random.uniform(200, 900),
-                                    'delay': dist / 1800.0
-                                })
-                        self.results_trans = {'tiles': trans_tiles, 'mx': mx, 'my': my, 'time_start': time_start}
+            # ── Header strip ────────────────────────────────────────────────
+            header_surf = pygame.Surface((W, 64), pygame.SRCALPHA)
+            header_surf.fill((14, 14, 22, 220))
+            pygame.draw.line(header_surf, (*self.ACCENT_COLOR, 100), (0, 63), (W, 63), 1)
+            self.screen.blit(header_surf, (0, 0))
 
-                    for t in self.results_trans['tiles']:
-                        local_p = (fade_progress - t['delay']) / 0.4
-                        if local_p <= 0:
-                            self.screen.blit(last_frame, (t['x'], t['y']), pygame.Rect(t['x'], t['y'], 40, 40))
-                        elif local_p < 1:
-                            ease_p = 1.0 - (1.0 - local_p)**3
-                            nx = t['x'] + t['vx'] * ease_p
-                            ny = t['y'] + t['vy'] * ease_p
-                            s = int(40 * (1.0 - ease_p))
-                            if s > 0:
-                                self.screen.blit(last_frame, (int(nx + 20 - s/2), int(ny + 20 - s/2)), pygame.Rect(t['x'], t['y'], s, s))
+            # "RESULTS" label (left)
+            res_lbl = font_header.render("RESULTS", True, self.ACCENT_COLOR)
+            res_lbl.set_alpha(int(255 * ease_p))
+            self.screen.blit(res_lbl, (35, 22))
 
-                    shock_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-                    shockwave_radius = fade_progress * 2000
-                    shockwave_thickness = int(max(1, 200 * (1.0 - fade_progress)))
-                    if shockwave_radius > 0:
-                        pygame.draw.circle(shock_surf, (0, 229, 255, int(255 * (1.0 - fade_progress))), (self.results_trans['mx'], self.results_trans['my']), int(shockwave_radius), shockwave_thickness)
-                        for _ in range(40):
-                            angle = random.uniform(0, math.pi * 2)
-                            r_offset = random.uniform(-shockwave_thickness, shockwave_thickness * 1.5)
-                            px = self.results_trans['mx'] + math.cos(angle) * (shockwave_radius + r_offset)
-                            py = self.results_trans['my'] + math.sin(angle) * (shockwave_radius + r_offset)
-                            psize = random.randint(2, 8)
-                            palpha = int(255 * (1.0 - fade_progress) * random.uniform(0.5, 1.0))
-                            pygame.draw.circle(shock_surf, (0, 255, 255, palpha), (int(px), int(py)), psize)
-                    self.screen.blit(shock_surf, (0, 0))
-                else:
-                    last_frame = None
+            # Song title + artist (right of header)
+            if song_title:
+                title_s  = font_title.render(song_title, True, self.TEXT_COLOR)
+                title_s.set_alpha(int(255 * ease_p))
+                self.screen.blit(title_s, title_s.get_rect(midright=(W - 25, 20)))
+            if song_artist:
+                artist_s = font_artist.render(song_artist, True, self.MUTED_COLOR)
+                artist_s.set_alpha(int(200 * ease_p))
+                self.screen.blit(artist_s, artist_s.get_rect(midright=(W - 25, 42)))
+
+            # ══════════════════════════════════════════════════════════════════
+            # ── TWO-COLUMN MODERN CARDS LAYOUT (osu!lazer inspired) ───────────
+            # ══════════════════════════════════════════════════════════════════
+            slide_l = int((1.0 - ease_p) * -50)
+            slide_r = int((1.0 - ease_p) * 50)
+
+            card_l = pygame.Rect(35 + slide_l, 76, 490, 544)
+            card_r = pygame.Rect(545 + slide_r, 76, 700, 544)
+
+            # Draw outer cards
+            draw_rounded_rect_alpha(self.screen, card_l, (14, 14, 22, int(200 * ease_p)), radius=14)
+            draw_rounded_border(self.screen, card_l, (45, 48, 65, int(150 * ease_p)), width=1, radius=14)
+
+            draw_rounded_rect_alpha(self.screen, card_r, (14, 14, 22, int(200 * ease_p)), radius=14)
+            draw_rounded_border(self.screen, card_r, (45, 48, 65, int(150 * ease_p)), width=1, radius=14)
+
+            # ══════════════ LEFT COLUMN: SCORE & PERFORMANCE ═══════════════════
+            # 1. Hero Grade Letter + Glow
+            grade_cx = card_l.x + 85
+            grade_cy = 152 + int(grade_bounce_pos)
+            glow_pulse = (math.sin(pulse_t * 2.0) + 1.0) * 0.5
+            glow_alpha = int((80 + 50 * glow_pulse) * ease_p)
+            for r in (38, 24, 12):
+                g_s = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.circle(g_s, (*glow_color, glow_alpha // (38 // r + 1)), (r + 2, r + 2), r)
+                self.screen.blit(g_s, (grade_cx - r - 2, grade_cy - r - 2))
+
+            grade_s = font_grade.render(grade, True, grade_color)
+            grade_s.set_alpha(int(255 * ease_p))
+            self.screen.blit(grade_s, grade_s.get_rect(center=(grade_cx, grade_cy)))
+
+            # Vertical separator in hero area
+            div_s = pygame.Surface((1, 90), pygame.SRCALPHA)
+            div_s.fill((60, 60, 80, int(100 * ease_p)))
+            self.screen.blit(div_s, (card_l.x + 165, 108))
+
+            # Total Score Block
+            score_x = card_l.x + 185
+            sc_lbl = font_label.render("TOTAL SCORE", True, self.MUTED_COLOR)
+            sc_lbl.set_alpha(int(220 * ease_p))
+            self.screen.blit(sc_lbl, (score_x, 114))
+
+            sc_val = font_score.render(f"{int(display_score):,}", True, self.TEXT_COLOR)
+            sc_val.set_alpha(int(255 * ease_p))
+            self.screen.blit(sc_val, (score_x, 136))
+
+            # New PB pill badge or difficulty pill
+            if is_new_pb:
+                pb_box = pygame.Rect(score_x, 178, 150, 24)
+                draw_rounded_rect_alpha(self.screen, pb_box, (55, 42, 10, int(220 * ease_p)), radius=6)
+                draw_rounded_border(self.screen, pb_box, (255, 215, 50, int(220 * ease_p)), width=1, radius=6)
+                pb_text = font_hint.render("NEW PERSONAL BEST", True, (255, 215, 50))
+                pb_text.set_alpha(int(255 * ease_p))
+                self.screen.blit(pb_text, pb_text.get_rect(center=pb_box.center))
+            elif diff_name:
+                diff_box = pygame.Rect(score_x, 178, 120, 24)
+                draw_rounded_rect_alpha(self.screen, diff_box, (*self.ACCENT_COLOR, int(35 * ease_p)), radius=6)
+                draw_rounded_border(self.screen, diff_box, (*self.ACCENT_COLOR, int(90 * ease_p)), width=1, radius=6)
+                d_text = font_hint.render(diff_name, True, self.ACCENT_COLOR)
+                d_text.set_alpha(int(220 * ease_p))
+                self.screen.blit(d_text, d_text.get_rect(center=diff_box.center))
+
+            # Horizontal line 1
+            line1_s = pygame.Surface((card_l.width - 40, 1), pygame.SRCALPHA)
+            line1_s.fill((45, 48, 65, int(120 * ease_p)))
+            self.screen.blit(line1_s, (card_l.x + 20, 222))
+
+            # 2. Key Stats: Accuracy Arc & Max Combo Sub-cards
+            sub_acc_rect = pygame.Rect(card_l.x + 20, 238, 215, 148)
+            draw_rounded_rect_alpha(self.screen, sub_acc_rect, (18, 18, 28, int(190 * ease_p)), radius=10)
+            draw_rounded_border(self.screen, sub_acc_rect, (40, 42, 58, int(120 * ease_p)), width=1, radius=10)
+
+            arc_cx = sub_acc_rect.centerx
+            arc_cy = sub_acc_rect.y + 70
+            arc_r  = 44
+            draw_accuracy_arc(self.screen, arc_cx, arc_cy, arc_r, 1.0, (35, 35, 50), width=6)
+            animated_pct = min(accuracy, ease_p * accuracy)
+            draw_accuracy_arc(self.screen, arc_cx, arc_cy, arc_r, animated_pct, grade_color, width=6)
+
+            acc_lbl = font_hint.render("ACCURACY", True, self.MUTED_COLOR)
+            acc_lbl.set_alpha(int(200 * ease_p))
+            self.screen.blit(acc_lbl, acc_lbl.get_rect(center=(arc_cx, arc_cy - 10)))
+
+            acc_val = font_stat.render(f"{accuracy * 100:.2f}%", True, grade_color)
+            acc_val.set_alpha(int(255 * ease_p))
+            self.screen.blit(acc_val, acc_val.get_rect(center=(arc_cx, arc_cy + 10)))
+
+            sub_combo_rect = pygame.Rect(card_l.x + 255, 238, 215, 148)
+            draw_rounded_rect_alpha(self.screen, sub_combo_rect, (18, 18, 28, int(190 * ease_p)), radius=10)
+            draw_rounded_border(self.screen, sub_combo_rect, (40, 42, 58, int(120 * ease_p)), width=1, radius=10)
+
+            cmb_lbl = font_hint.render("MAX COMBO", True, self.MUTED_COLOR)
+            cmb_lbl.set_alpha(int(200 * ease_p))
+            self.screen.blit(cmb_lbl, cmb_lbl.get_rect(center=(sub_combo_rect.centerx, sub_combo_rect.y + 36)))
+
+            cmb_val = font_score.render(f"{max_combo}x", True, self.ACCENT_COLOR)
+            cmb_val.set_alpha(int(255 * ease_p))
+            self.screen.blit(cmb_val, cmb_val.get_rect(center=(sub_combo_rect.centerx, sub_combo_rect.y + 74)))
+
+            fc_text = "PERFECT COMBO" if cmiss == 0 else f"{cmiss} MISS{'ES' if cmiss > 1 else ''}"
+            fc_col = (255, 215, 50) if cmiss == 0 else (255, 80, 80)
+            fc_s = font_hint.render(fc_text, True, fc_col)
+            fc_s.set_alpha(int(220 * ease_p))
+            self.screen.blit(fc_s, fc_s.get_rect(center=(sub_combo_rect.centerx, sub_combo_rect.y + 116)))
+
+            # Horizontal line 2
+            line2_s = pygame.Surface((card_l.width - 40, 1), pygame.SRCALPHA)
+            line2_s.fill((45, 48, 65, int(120 * ease_p)))
+            self.screen.blit(line2_s, (card_l.x + 20, 404))
+
+            # 3. Lower Stats: Unstable Rate & Active Mods
+            sub_ur_rect = pygame.Rect(card_l.x + 20, 420, 215, 58)
+            draw_rounded_rect_alpha(self.screen, sub_ur_rect, (18, 18, 28, int(190 * ease_p)), radius=8)
+            draw_rounded_border(self.screen, sub_ur_rect, (40, 42, 58, int(120 * ease_p)), width=1, radius=8)
+
+            ur_t = font_hint.render("UNSTABLE RATE", True, self.MUTED_COLOR)
+            ur_t.set_alpha(int(200 * ease_p))
+            self.screen.blit(ur_t, (sub_ur_rect.x + 14, sub_ur_rect.y + 10))
+
+            ur_col = (0, 229, 255) if ur_value < 100 else (255, 255, 255)
+            ur_v = font_stat.render(f"{ur_value:.1f} UR", True, ur_col)
+            ur_v.set_alpha(int(255 * ease_p))
+            self.screen.blit(ur_v, (sub_ur_rect.x + 14, sub_ur_rect.y + 28))
+
+            sub_mod_rect = pygame.Rect(card_l.x + 255, 420, 215, 58)
+            draw_rounded_rect_alpha(self.screen, sub_mod_rect, (18, 18, 28, int(190 * ease_p)), radius=8)
+            draw_rounded_border(self.screen, sub_mod_rect, (40, 42, 58, int(120 * ease_p)), width=1, radius=8)
+
+            mod_t = font_hint.render("ACTIVE MODS", True, self.MUTED_COLOR)
+            mod_t.set_alpha(int(200 * ease_p))
+            self.screen.blit(mod_t, (sub_mod_rect.x + 14, sub_mod_rect.y + 10))
+
+            mod_v = font_stat.render(f"{mod_str} ({mult:.2f}x)", True, self.ACCENT_COLOR)
+            mod_v.set_alpha(int(255 * ease_p))
+            self.screen.blit(mod_v, (sub_mod_rect.x + 14, sub_mod_rect.y + 28))
+
+            # Bottom Track Meta Pill
+            track_pill = pygame.Rect(card_l.x + 20, 494, card_l.width - 40, 36)
+            draw_rounded_rect_alpha(self.screen, track_pill, (20, 20, 30, int(150 * ease_p)), radius=6)
+            tr_text = f"{song_title}  •  {diff_name}" if diff_name else song_title
+            tr_s = font_hint.render(tr_text, True, self.MUTED_COLOR)
+            tr_s.set_alpha(int(200 * ease_p))
+            self.screen.blit(tr_s, tr_s.get_rect(center=track_pill.center))
+
+            # ══════════════ RIGHT COLUMN: JUDGMENT BREAKDOWN & TIMING ═════════
+            # Title
+            hr_lbl = font_header.render("HIT ACCURACY BREAKDOWN", True, self.ACCENT_COLOR)
+            hr_lbl.set_alpha(int(230 * ease_p))
+            self.screen.blit(hr_lbl, (card_r.x + 25, 96))
+
+            # 2×2 Judgments Grid (Spacious, Zero Overlapping)
+            grid_w = 315
+            grid_h = 56
+            col1_x = card_r.x + 25
+            col2_x = card_r.x + 360
+
+            row1_y = 126
+            row2_y = 194
+
+            # PERFECT
+            draw_judgment_card(self.screen, pygame.Rect(col1_x, row1_y, grid_w, grid_h),
+                               "PERFECT", c300, (0, 229, 255), ease_p)
+            # GREAT
+            draw_judgment_card(self.screen, pygame.Rect(col2_x, row1_y, grid_w, grid_h),
+                               "GREAT", c100, (100, 220, 255), ease_p)
+            # GOOD
+            draw_judgment_card(self.screen, pygame.Rect(col1_x, row2_y, grid_w, grid_h),
+                               "GOOD", c50, (255, 190, 50), ease_p)
+            # MISS
+            draw_judgment_card(self.screen, pygame.Rect(col2_x, row2_y, grid_w, grid_h),
+                               "MISS", cmiss, (255, 70, 80), ease_p)
+
+            # Divider line 3
+            line3_s = pygame.Surface((card_r.width - 50, 1), pygame.SRCALPHA)
+            line3_s.fill((45, 48, 65, int(120 * ease_p)))
+            self.screen.blit(line3_s, (card_r.x + 25, 270))
+
+            # ── Hit Timing Distribution (osu!lazer Hit Error Distribution) ────
+            tb_title = font_header.render("HIT TIMING DISTRIBUTION", True, self.ACCENT_COLOR)
+            tb_title.set_alpha(int(220 * ease_p))
+            self.screen.blit(tb_title, (card_r.x + 25, 288))
+
+            tb_sub = font_hint.render(f"Mean Deviation: {mean_err:+.1f}ms   |   Total Hits: {total}", True, self.MUTED_COLOR)
+            tb_sub.set_alpha(int(190 * ease_p))
+            self.screen.blit(tb_sub, tb_sub.get_rect(midright=(card_r.right - 25, 298)))
+
+            # 580px wide timing bar
+            BAR_W = 650
+            BAR_H = 18
+            BAR_X = card_r.x + 25
+            BAR_Y = 328
+            bar_rect = pygame.Rect(BAR_X, BAR_Y, BAR_W, BAR_H)
+
+            # Bar track
+            draw_rounded_rect_alpha(self.screen, bar_rect, (22, 22, 34, int(220 * ease_p)), radius=6)
+            # Window zones
+            cx_bar = BAR_X + BAR_W // 2
+            # Good zone
+            gw_bar = int((BAR_W // 2) * (self.GOOD_WINDOW / self.MISS_WINDOW))
+            pygame.draw.rect(self.screen, (100, 80, 20), (cx_bar - gw_bar, BAR_Y + 1, gw_bar * 2, BAR_H - 2), border_radius=4)
+            # Great zone
+            rw_bar = int((BAR_W // 2) * (self.GREAT_WINDOW / self.MISS_WINDOW))
+            pygame.draw.rect(self.screen, (20, 70, 110), (cx_bar - rw_bar, BAR_Y + 1, rw_bar * 2, BAR_H - 2), border_radius=4)
+            # Perfect zone
+            pw_bar = int((BAR_W // 2) * (self.PERFECT_WINDOW / self.MISS_WINDOW))
+            pygame.draw.rect(self.screen, (0, 140, 120), (cx_bar - pw_bar, BAR_Y + 1, pw_bar * 2, BAR_H - 2), border_radius=4)
+
+            draw_rounded_border(self.screen, bar_rect, (50, 52, 72, int(180 * ease_p)), width=1, radius=6)
+            # Center notch
+            pygame.draw.line(self.screen, (255, 255, 255, int(200 * ease_p)), (cx_bar, BAR_Y - 3), (cx_bar, BAR_Y + BAR_H + 3), 2)
+
+            # Plotted timing error points
+            if timing_errors:
+                for err_ms in timing_errors:
+                    norm = max(-1.0, min(1.0, err_ms / 150.0))
+                    dot_x = int(cx_bar + norm * (BAR_W // 2))
+                    dot_col = (100, 200, 255) if err_ms < 0 else (255, 140, 60)
+                    dot_s = pygame.Surface((3, BAR_H - 4), pygame.SRCALPHA)
+                    dot_s.fill((*dot_col, int(150 * ease_p)))
+                    self.screen.blit(dot_s, (dot_x - 1, BAR_Y + 2))
+
+            # Running mean arrow marker
+            if len(timing_errors) > 0:
+                mean_norm = max(-1.0, min(1.0, mean_err / 150.0))
+                marker_x = int(cx_bar + mean_norm * (BAR_W // 2))
+                tri_pts = [(marker_x, BAR_Y - 2), (marker_x - 4, BAR_Y - 7), (marker_x + 4, BAR_Y - 7)]
+                pygame.draw.polygon(self.screen, (255, 255, 255), tri_pts)
+
+            # Labels below timing bar
+            early_s = font_hint.render("-150ms  EARLY", True, (100, 200, 255))
+            early_s.set_alpha(int(200 * ease_p))
+            self.screen.blit(early_s, (BAR_X, BAR_Y + 24))
+
+            center_s = font_hint.render("0ms", True, (180, 180, 200))
+            center_s.set_alpha(int(180 * ease_p))
+            self.screen.blit(center_s, center_s.get_rect(center=(cx_bar, BAR_Y + 30)))
+
+            late_s = font_hint.render("LATE  +150ms", True, (255, 140, 60))
+            late_s.set_alpha(int(200 * ease_p))
+            self.screen.blit(late_s, late_s.get_rect(topright=(BAR_X + BAR_W, BAR_Y + 24)))
+
+            # Divider line 4
+            line4_s = pygame.Surface((card_r.width - 50, 1), pygame.SRCALPHA)
+            line4_s.fill((45, 48, 65, int(120 * ease_p)))
+            self.screen.blit(line4_s, (card_r.x + 25, 420))
+
+            # ── Overview Summary Cards ────────────────────────────────────────
+            sum_rect = pygame.Rect(card_r.x + 25, 436, card_r.width - 50, 84)
+            draw_rounded_rect_alpha(self.screen, sum_rect, (18, 18, 28, int(190 * ease_p)), radius=10)
+            draw_rounded_border(self.screen, sum_rect, (40, 42, 58, int(120 * ease_p)), width=1, radius=10)
+
+            # 3 Columns in summary
+            sec_w = sum_rect.width // 3
+            # Col 1: Total Notes
+            c1_x = sum_rect.x + sec_w // 2
+            t1 = font_hint.render("TOTAL NOTES", True, self.MUTED_COLOR)
+            v1 = font_stat.render(f"{total:,}", True, self.TEXT_COLOR)
+            self.screen.blit(t1, t1.get_rect(center=(c1_x, sum_rect.y + 24)))
+            self.screen.blit(v1, v1.get_rect(center=(c1_x, sum_rect.y + 54)))
+
+            # Divider 1
+            pygame.draw.line(self.screen, (40, 42, 58), (sum_rect.x + sec_w, sum_rect.y + 12),
+                             (sum_rect.x + sec_w, sum_rect.bottom - 12), 1)
+
+            # Col 2: Final Rank
+            c2_x = sum_rect.x + sec_w + sec_w // 2
+            t2 = font_hint.render("FINAL RANK", True, self.MUTED_COLOR)
+            v2 = font_stat.render(f"GRADE {grade} ({accuracy*100:.1f}%)", True, grade_color)
+            self.screen.blit(t2, t2.get_rect(center=(c2_x, sum_rect.y + 24)))
+            self.screen.blit(v2, v2.get_rect(center=(c2_x, sum_rect.y + 54)))
+
+            # Divider 2
+            pygame.draw.line(self.screen, (40, 42, 58), (sum_rect.x + sec_w * 2, sum_rect.y + 12),
+                             (sum_rect.x + sec_w * 2, sum_rect.bottom - 12), 1)
+
+            # Col 3: Consistency
+            c3_x = sum_rect.x + sec_w * 2 + sec_w // 2
+            t3 = font_hint.render("CONSISTENCY", True, self.MUTED_COLOR)
+            v3 = font_stat.render(f"{ur_value:.1f} UR", True, self.ACCENT_COLOR)
+            self.screen.blit(t3, t3.get_rect(center=(c3_x, sum_rect.y + 24)))
+            self.screen.blit(v3, v3.get_rect(center=(c3_x, sum_rect.y + 54)))
+
+            # ── Bottom button strip ──────────────────────────────────────────
+            strip_surf = pygame.Surface((W, 80), pygame.SRCALPHA)
+            strip_surf.fill((10, 10, 18, 220))
+            pygame.draw.line(strip_surf, (*self.ACCENT_COLOR, 60), (0, 0), (W, 0), 1)
+            self.screen.blit(strip_surf, (0, H - 80))
+
+            # Hint text
+            hint_s = font_hint.render("CTRL+R  Retry   |   ENTER / ESC  Menu", True, (70, 70, 95))
+            hint_s.set_alpha(int(160 * ease_p))
+            self.screen.blit(hint_s, hint_s.get_rect(center=(W // 2, H - 16)))
+
+            # Buttons
+            if ease_p > 0.6:
+                btn_alpha = min(1.0, (ease_p - 0.6) / 0.4)
+
+                # RETRY button
+                r_hov = retry_rect.collidepoint(mouse_pos)
+                r_bg  = (50, 30, 80, int(220 * btn_alpha)) if r_hov else (26, 26, 38, int(200 * btn_alpha))
+                r_bdr = (*self.ACCENT_COLOR, int(200 * btn_alpha)) if r_hov else (70, 70, 100, int(150 * btn_alpha))
+                draw_rounded_rect_alpha(self.screen, retry_rect, r_bg, radius=10)
+                draw_rounded_border(self.screen, retry_rect, r_bdr[:3], width=2, radius=10)
+                r_txt = font_header.render("RETRY", True,
+                                           self.ACCENT_COLOR if r_hov else self.TEXT_COLOR)
+                r_txt.set_alpha(int(255 * btn_alpha))
+                self.screen.blit(r_txt, r_txt.get_rect(center=retry_rect.center))
+
+                # MENU button
+                m_hov = menu_rect.collidepoint(mouse_pos)
+                m_bg  = (30, 50, 80, int(220 * btn_alpha)) if m_hov else (26, 26, 38, int(200 * btn_alpha))
+                m_bdr = (*self.ACCENT_COLOR, int(200 * btn_alpha)) if m_hov else (70, 70, 100, int(150 * btn_alpha))
+                draw_rounded_rect_alpha(self.screen, menu_rect, m_bg, radius=10)
+                draw_rounded_border(self.screen, menu_rect, m_bdr[:3], width=2, radius=10)
+                m_txt = font_header.render("MENU", True,
+                                           self.ACCENT_COLOR if m_hov else self.TEXT_COLOR)
+                m_txt.set_alpha(int(255 * btn_alpha))
+                self.screen.blit(m_txt, m_txt.get_rect(center=menu_rect.center))
 
             pygame.display.flip()
-            clock.tick(30)
+            clock.tick(60)
 
     @staticmethod
     def _get_dt_audio_path(audio_path: str) -> str:
@@ -653,6 +1188,7 @@ class GameManager:
 
         # Animation & Feedback State Variables
         feedback_text = ""
+        feedback_sub_text = ""         # EARLY / LATE sub-label
         feedback_timer = 0.0
         feedback_max_time = 0.35
         feedback_y_offset = 0.0
@@ -660,6 +1196,15 @@ class GameManager:
         particles = []
         display_hp = float(hp)
         combo_pop_timer = 0.0
+        # Wrong-key flash: briefly shows the correct letter on the note
+        wrong_flash_timer = 0.0
+        wrong_flash_char = ""
+        # Combo milestone tracking
+        COMBO_MILESTONES = {50, 100, 200, 500, 1000}
+        milestone_flash_timer = 0.0
+        milestone_flash_combo = 0
+        # Passive HP drain
+        HP_DRAIN_RATE = 1.5   # HP / second lost passively
 
         # O(1) Running Unstable Rate (UR) tracking
         timing_errors = []
@@ -667,6 +1212,7 @@ class GameManager:
         err_sum = 0.0
         err_sum_sq = 0.0
         ur_value = 0.0
+        live_error_ticks = []  # real-time hit error bar ticks: [{"norm", "life", "col"}]
 
         # Monkeytype HUD cached render surfaces
         cached_hud_idx = -1
@@ -765,6 +1311,17 @@ class GameManager:
                         conductor.stop()
                         return "play"
 
+                    # F11: toggle fullscreen
+                    if event.key == pygame.K_F11:
+                        flags = self.screen.get_flags()
+                        if flags & pygame.FULLSCREEN:
+                            self.screen = pygame.display.set_mode(
+                                (self.width, self.height), pygame.RESIZABLE)
+                        else:
+                            self.screen = pygame.display.set_mode(
+                                (0, 0), pygame.FULLSCREEN)
+                            self.width, self.height = self.screen.get_size()
+
                     if event.key == pygame.K_ESCAPE:
                         pause_result = self._pause_screen(conductor, clock)
                         if pause_result != "resume":
@@ -823,6 +1380,26 @@ class GameManager:
                                     variance = max(0.0, (err_sum_sq / err_count) - (mean_err * mean_err))
                                     ur_value = math.sqrt(variance) * 10.0
 
+                                # EARLY / LATE sub-text
+                                if time_error < -0.005:
+                                    feedback_sub_text = "EARLY"
+                                elif time_error > 0.005:
+                                    feedback_sub_text = "LATE"
+                                else:
+                                    feedback_sub_text = ""
+
+                                # Real-time hit error meter tick
+                                norm_err = max(-1.0, min(1.0, time_error / self.MISS_WINDOW))
+                                if abs_err <= self.PERFECT_WINDOW:
+                                    tick_col = (0, 255, 180)
+                                elif abs_err <= self.GREAT_WINDOW:
+                                    tick_col = (100, 220, 255)
+                                elif abs_err <= self.GOOD_WINDOW:
+                                    tick_col = (255, 200, 0)
+                                else:
+                                    tick_col = (255, 70, 70)
+                                live_error_ticks.append({"norm": norm_err, "life": 1.2, "col": tick_col})
+
                                 if abs_err <= self.PERFECT_WINDOW:
                                     feedback_text = "PERFECT!"
                                     score += 300 * (1 + combo * 0.1) * mod_score_mult
@@ -859,6 +1436,25 @@ class GameManager:
                                     if is_pf:
                                         hp = 0.0
 
+                                # Combo milestones
+                                if combo in COMBO_MILESTONES:
+                                    milestone_flash_timer = 1.2
+                                    milestone_flash_combo = combo
+                                    for _ in range(28):
+                                        angle = random.uniform(0, math.pi * 2)
+                                        spd = random.uniform(250, 600)
+                                        particles.append({
+                                            "x": self.width // 2,
+                                            "y": self.lane_y - 80,
+                                            "vx": math.cos(angle) * spd,
+                                            "vy": math.sin(angle) * spd,
+                                            "life": random.uniform(0.6, 1.1),
+                                            "max_life": 1.1,
+                                            "color": (255, 215, 0),
+                                            "type": "glitter",
+                                            "size": random.uniform(3, 7)
+                                        })
+
                                 self._play_hitsound()
                                 active_note["hit"] = True
                                 feedback_timer = feedback_max_time
@@ -880,6 +1476,7 @@ class GameManager:
                                 current_note_idx += 1
                             else:
                                 feedback_text = "WRONG"
+                                feedback_sub_text = ""
                                 self._play_miss_sound()
                                 combo = 0
                                 hp = max(0.0, hp - hp_wrong_drain)
@@ -887,6 +1484,9 @@ class GameManager:
                                     hp = 0.0
                                 feedback_timer = feedback_max_time
                                 feedback_y_offset = 0.0
+                                # Wrong-key flash: show what was needed
+                                wrong_flash_timer = 0.55
+                                wrong_flash_char = active_note["char"]
                                 hp_drop_w = (self.width - 450) * (hp_wrong_drain / 100.0)
                                 chunk_x = 350 + (self.width - 450) * (hp / 100.0)
                                 ratio = max(0.0, min(1.0, hp / 100.0))
@@ -915,6 +1515,21 @@ class GameManager:
                     conductor.stop()
                     last_frame = self.screen.copy()
                     return self._show_results(score, max_combo, timing_errors, counts, ur_value, clock, last_frame)
+
+            # Passive HP drain (paused at full perfect streak naturally)
+            if not countdown_active and not song_ended:
+                hp = max(0.0, hp - HP_DRAIN_RATE * dt)
+
+            # Tick timers
+            if wrong_flash_timer > 0:
+                wrong_flash_timer -= dt
+            if milestone_flash_timer > 0:
+                milestone_flash_timer -= dt
+
+            # Tick real-time hit error ticks
+            live_error_ticks = [t for t in live_error_ticks if t["life"] > 0]
+            for t in live_error_ticks:
+                t["life"] -= dt
 
             # --- RENDERING ---
             if bg_surface:
@@ -1113,14 +1728,46 @@ class GameManager:
                     self.screen.blit(surf, (cur_x, hud_y + 30))
                     cur_x += surf.get_width()
 
-            # --- HUD: Score & Combo ---
+            # --- HUD: Score, Accuracy, Multiplier & Combo ---
             score_surf = self.font_score.render(f"{int(score):06d}", True, self.TEXT_COLOR)
             self.screen.blit(score_surf, (50, 24))
+
+            total_hits = counts["perfect"] + counts["great"] + counts["good"] + counts["miss"]
+            current_acc = (300 * counts["perfect"] + 100 * counts["great"] + 50 * counts["good"]) / (300 * total_hits) if total_hits > 0 else 1.0
+            acc_surf = self.font_small.render(f"ACC  {current_acc * 100:.2f}%", True, self.ACCENT_COLOR)
+            self.screen.blit(acc_surf, (52, 68))
+            if mod_score_mult != 1.0:
+                mult_surf = self.font_small.render(f"MULT  {mod_score_mult:.2f}x", True, (255, 215, 60))
+                self.screen.blit(mult_surf, (52, 88))
 
             if combo > 1:
                 combo_surf = self.font_combo.render(f"{combo}x", True, self.ACCENT_COLOR)
                 combo_rect = combo_surf.get_rect(center=(self.width // 2, self.lane_y - 75))
                 self.screen.blit(combo_surf, combo_rect)
+
+            # Wrong-key flash: tinted correct-letter tile above note
+            if wrong_flash_timer > 0 and wrong_flash_char:
+                flash_alpha = int(255 * (wrong_flash_timer / 0.55))
+                flash_surf = pygame.Surface((70, 70), pygame.SRCALPHA)
+                pygame.draw.rect(flash_surf, (255, 60, 60, min(180, flash_alpha)), (0, 0, 70, 70), border_radius=15)
+                pygame.draw.rect(flash_surf, (255, 100, 100, flash_alpha), (0, 0, 70, 70), 3, border_radius=15)
+                char_surf = self.font_med.render(wrong_flash_char, True, (255, 230, 230))
+                char_surf.set_alpha(flash_alpha)
+                flash_surf.blit(char_surf, char_surf.get_rect(center=(35, 35)))
+                self.screen.blit(flash_surf, (notes[current_note_idx]["x"] - 35 if current_note_idx < len(notes) else self.target_x - 35, self.lane_y - 35))
+
+            # Combo milestone flash overlay
+            if milestone_flash_timer > 0:
+                mf_alpha = int(min(255, milestone_flash_timer * 180))
+                mf_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                mf_surf.fill((255, 215, 0, min(30, mf_alpha // 4)))
+                self.screen.blit(mf_surf, (0, 0))
+                pulse = abs(math.sin(milestone_flash_timer * 8))
+                mc_font = self.font_large
+                mc_text = f"{milestone_flash_combo}x COMBO!"
+                mc_surf = mc_font.render(mc_text, True, (255, 215, 0))
+                mc_surf.set_alpha(min(255, int(mf_alpha * 1.5)))
+                self.screen.blit(mc_surf, mc_surf.get_rect(center=(self.width // 2, self.lane_y - 150 - int(pulse * 12))))
 
             # Judgement Popups (without per-frame allocations)
             if feedback_timer > 0:
@@ -1134,6 +1781,13 @@ class GameManager:
                 if base_judgement:
                     base_judgement.set_alpha(current_alpha)
                     self.screen.blit(base_judgement, base_judgement.get_rect(center=(self.target_x, self.lane_y - 90 + feedback_y_offset)))
+
+                # EARLY / LATE sub-label
+                if feedback_sub_text:
+                    sub_col = (100, 180, 255) if feedback_sub_text == "EARLY" else (255, 150, 80)
+                    sub_surf = self.font_small.render(feedback_sub_text, True, sub_col)
+                    sub_surf.set_alpha(current_alpha)
+                    self.screen.blit(sub_surf, sub_surf.get_rect(center=(self.target_x, self.lane_y - 60 + feedback_y_offset)))
 
             # --- Countdown Overlay ---
             if countdown_active and countdown_timer > 0:
@@ -1153,8 +1807,9 @@ class GameManager:
                 skip_rect = pygame.Rect(self.width // 2 - 130, self.height - 110, 260, 44)
                 is_skip_hovered = skip_rect.collidepoint(mouse_pos)
 
+                skip_pulse = (math.sin(pygame.time.get_ticks() * 0.006) + 1.0) * 0.5
                 s_bg = self.ACCENT_COLOR if is_skip_hovered else (24, 24, 34)
-                s_border = (120, 240, 255) if is_skip_hovered else self.ACCENT_COLOR
+                s_border = (120, 240, 255) if is_skip_hovered else (0, int(150 + 79 * skip_pulse), int(180 + 75 * skip_pulse))
                 s_fg = (10, 10, 15) if is_skip_hovered else self.ACCENT_COLOR
 
                 s_surf = pygame.Surface((260, 44), pygame.SRCALPHA)
@@ -1165,6 +1820,47 @@ class GameManager:
                 txt = self.font_guide.render("SKIP INTRO  [SPACE]", True, s_fg)
                 self.screen.blit(txt, txt.get_rect(center=skip_rect.center))
 
+            # --- Real-Time Hit Error Bar (osu! style) ---
+            heb_w = 260
+            heb_h = 6
+            heb_x = self.width // 2 - heb_w // 2
+            heb_y = self.height - 24
+
+            # Background bar
+            pygame.draw.rect(self.screen, (20, 20, 30), (heb_x, heb_y, heb_w, heb_h), border_radius=3)
+            # Window colored zones
+            good_pct = min(1.0, self.GOOD_WINDOW / self.MISS_WINDOW)
+            great_pct = min(1.0, self.GREAT_WINDOW / self.MISS_WINDOW)
+            perf_pct = min(1.0, self.PERFECT_WINDOW / self.MISS_WINDOW)
+
+            cx = heb_x + heb_w // 2
+            gw = int((heb_w // 2) * good_pct)
+            pygame.draw.rect(self.screen, (100, 80, 20), (cx - gw, heb_y, gw * 2, heb_h), border_radius=2)
+            rw = int((heb_w // 2) * great_pct)
+            pygame.draw.rect(self.screen, (20, 70, 100), (cx - rw, heb_y, rw * 2, heb_h), border_radius=2)
+            pw = int((heb_w // 2) * perf_pct)
+            pygame.draw.rect(self.screen, (0, 120, 100), (cx - pw, heb_y, pw * 2, heb_h), border_radius=2)
+            pygame.draw.rect(self.screen, (50, 50, 70), (heb_x, heb_y, heb_w, heb_h), 1, border_radius=3)
+            pygame.draw.line(self.screen, (255, 255, 255), (cx, heb_y - 2), (cx, heb_y + heb_h + 2), 2)
+
+            for t in live_error_ticks:
+                tx = int(cx + t["norm"] * (heb_w // 2))
+                alpha = int(255 * (t["life"] / 1.2))
+                ts = pygame.Surface((3, heb_h + 4), pygame.SRCALPHA)
+                ts.fill((*t["col"], alpha))
+                self.screen.blit(ts, (tx - 1, heb_y - 2))
+
+            if err_count > 0:
+                mean_norm = max(-1.0, min(1.0, (err_sum / err_count) / (self.MISS_WINDOW * 1000.0)))
+                avg_x = int(cx + mean_norm * (heb_w // 2))
+                tri_pts = [(avg_x, heb_y - 3), (avg_x - 3, heb_y - 7), (avg_x + 3, heb_y - 7)]
+                pygame.draw.polygon(self.screen, (255, 255, 255), tri_pts)
+
+            lbl_early = self.font_mono.render("EARLY", True, (100, 180, 255))
+            lbl_late = self.font_mono.render("LATE", True, (255, 150, 80))
+            self.screen.blit(lbl_early, (heb_x - lbl_early.get_width() - 8, heb_y - 4))
+            self.screen.blit(lbl_late, (heb_x + heb_w + 8, heb_y - 4))
+
 
             if last_frame:
                 fade_progress = min(1.0, (pygame.time.get_ticks() - time_start) / 600.0)
@@ -1174,13 +1870,13 @@ class GameManager:
                         trans_tiles = []
                         for y in range(0, self.height, 40):
                             for x in range(0, self.width, 40):
-                                cx = x + 20
-                                cy = y + 20
-                                dist = math.hypot(cx - mx, cy - my)
+                                tile_cx = x + 20
+                                tile_cy = y + 20
+                                dist = math.hypot(tile_cx - mx, tile_cy - my)
                                 trans_tiles.append({
                                     'x': x, 'y': y, 'dist': dist,
-                                    'vx': (cx - mx) / (dist + 1) * random.uniform(200, 900),
-                                    'vy': (cy - my) / (dist + 1) * random.uniform(200, 900),
+                                    'vx': (tile_cx - mx) / (dist + 1) * random.uniform(200, 900),
+                                    'vy': (tile_cy - my) / (dist + 1) * random.uniform(200, 900),
                                     'delay': dist / 1800.0
                                 })
                         self.run_trans = {'tiles': trans_tiles, 'mx': mx, 'my': my, 'time_start': time_start}
@@ -1218,3 +1914,20 @@ class GameManager:
 
         conductor.stop()
         return "menu"
+
+    def _save_score(self, score, accuracy, grade, max_combo, counts):
+        """Save personal best for the currently selected song/diff."""
+        song_data = GlobalState.selected_song_data
+        title = song_data.get("title", "Unknown")
+        diff  = song_data.get("diff_name", "")
+        mod_str = " + ".join(sorted(GlobalState.active_mods)) if GlobalState.active_mods else "None"
+        return score_db.submit(
+            song_title=title,
+            diff_name=diff,
+            score=score,
+            accuracy=accuracy,
+            grade=grade,
+            max_combo=max_combo,
+            mods=mod_str,
+            counts=counts,
+        )

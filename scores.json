@@ -1,0 +1,28 @@
+{
+  "Hoshimachi Suisei - Moonshot (TV Size)::Take's Normal": {
+    "score": 27625,
+    "accuracy": 43.45,
+    "grade": "D",
+    "max_combo": 26,
+    "mods": "DT + NF",
+    "counts": {
+      "perfect": 50,
+      "great": 62,
+      "good": 40,
+      "miss": 26
+    }
+  },
+  "Unknown::": {
+    "score": 840210,
+    "accuracy": 84.2,
+    "grade": "C",
+    "max_combo": 120,
+    "mods": "None",
+    "counts": {
+      "perfect": 150,
+      "great": 30,
+      "good": 10,
+      "miss": 2
+    }
+  }
+}

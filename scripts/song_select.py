@@ -3,6 +3,7 @@ import os
 import math
 import pygame
 from global_state import GlobalState, get_fps_target, get_asset_path
+import score_db
 
 class SongSelect:
     def __init__(self, screen):
@@ -88,12 +89,16 @@ class SongSelect:
         # Game Modifiers System
         self.show_mods_modal = False
         self.mods_info = [
-            {"code": "NF", "name": "No Fail", "desc": "Can't fail even at 0% HP", "mult": "0.50x"},
-            {"code": "HR", "name": "Hard Rock", "desc": "Tighter timing & 1.4x speed", "mult": "1.06x"},
-            {"code": "SD", "name": "Sudden Death", "desc": "1 Miss or Wrong = Fail", "mult": "1.00x"},
-            {"code": "PF", "name": "Perfect", "desc": "SS or Instant Fail", "mult": "1.00x"},
-            {"code": "DT", "name": "Double Time", "desc": "1.5x Song Speed", "mult": "1.12x"},
+            {"code": "NF", "name": "No Fail",      "desc": "Can't fail even at 0% HP",    "mult": "0.50x"},
+            {"code": "HR", "name": "Hard Rock",    "desc": "Tighter timing & 1.4x speed", "mult": "1.06x"},
+            {"code": "SD", "name": "Sudden Death", "desc": "1 Miss or Wrong = Fail",     "mult": "1.00x"},
+            {"code": "PF", "name": "Perfect",      "desc": "SS or Instant Fail",         "mult": "1.00x"},
+            {"code": "DT", "name": "Double Time",  "desc": "1.5x Song Speed",            "mult": "1.12x"},
         ]
+
+        # Sort mode: 0 = default (Title A-Z), 1 = Difficulty count, 2 = BPM
+        self.sort_mode = 0
+        self.SORT_LABELS = ["Sort: Title", "Sort: Diffs", "Sort: BPM"]
 
         # Start preview playback of selected song immediately
         if 0 <= self.selected_song_index < len(GlobalState.song_list):
@@ -125,9 +130,22 @@ class SongSelect:
         try:
             pygame.mixer.music.load(song["audio_path"])
             pygame.mixer.music.set_volume(GlobalState.music_volume)
-            pygame.mixer.music.play(-1)
+            # Start at ~30s into the track for a better preview
+            pygame.mixer.music.play(-1, start=30.0)
         except Exception:
-            pass
+            try:
+                pygame.mixer.music.play(-1)
+            except Exception:
+                pass
+
+    def _get_sorted_songs(self, filtered):
+        """Apply current sort_mode to a filtered list of (orig_idx, song) pairs."""
+        if self.sort_mode == 1:
+            return sorted(filtered, key=lambda x: -len(x[1].get("difficulties", [])))
+        elif self.sort_mode == 2:
+            return sorted(filtered, key=lambda x: -float(x[1].get("bpm", 0)))
+        # Default: title A-Z (original order from scan)
+        return filtered
 
     def _trim_letterbox(self, surface):
         w, h = surface.get_size()
@@ -291,6 +309,40 @@ class SongSelect:
             
         return bg, txt, border
 
+    @staticmethod
+    def _get_star_rating(diff, bpm=130.0):
+        d_lower = diff.get("name", "").lower()
+        nc = diff.get("note_count", 0)
+        if any(k in d_lower for k in ["easy", "beginner"]):
+            base = 1.6
+        elif any(k in d_lower for k in ["normal"]):
+            base = 2.4
+        elif any(k in d_lower for k in ["hard", "advanced"]):
+            base = 3.6
+        elif any(k in d_lower for k in ["insane", "hyper"]):
+            base = 4.8
+        elif any(k in d_lower for k in ["special", "affection", "expert", "extra", "extreme", "master"]):
+            base = 5.8
+        else:
+            base = 3.0
+
+        if nc > 0:
+            scale = min(1.2, max(0.85, nc / 220.0))
+            base *= scale
+        if bpm > 0:
+            bpm_scale = min(1.15, max(0.9, bpm / 140.0))
+            base *= bpm_scale
+        return round(max(1.0, min(9.9, base)), 1)
+
+    @staticmethod
+    def _draw_star(surf, cx, cy, radius=7, color=(255, 215, 50)):
+        points = []
+        for i in range(10):
+            angle = -math.pi / 2 + i * (math.pi / 5)
+            r = radius if i % 2 == 0 else radius * 0.44
+            points.append((cx + math.cos(angle) * r, cy + math.sin(angle) * r))
+        pygame.draw.polygon(surf, color, points)
+
     def _play_hover(self):
         if self.hover_sound:
             try:
@@ -338,7 +390,7 @@ class SongSelect:
             mouse_pos = pygame.mouse.get_pos()
             mouse_clicked = False
             
-            filtered_songs = self._get_filtered_songs()
+            filtered_songs = self._get_sorted_songs(self._get_filtered_songs())
             
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -355,6 +407,15 @@ class SongSelect:
                     elif event.key == pygame.K_F1:
                         self._play_click()
                         self.show_mods_modal = not self.show_mods_modal
+                    elif event.key == pygame.K_F11:
+                        flags = self.screen.get_flags()
+                        if flags & pygame.FULLSCREEN:
+                            self.screen = pygame.display.set_mode(
+                                (self.width, self.height), pygame.RESIZABLE)
+                        else:
+                            self.screen = pygame.display.set_mode(
+                                (0, 0), pygame.FULLSCREEN)
+                            self.width, self.height = self.screen.get_size()
                     elif not self.show_mods_modal:
                         if event.key == pygame.K_BACKSPACE:
                             if self.search_query:
@@ -796,9 +857,30 @@ class SongSelect:
                             border_width = 2 if is_diff_selected else 1
                             pygame.draw.rect(self.screen, border_color, diff_rect, border_width, border_radius=6)
                             
-                            diff_text = self._render_fitted_text(self.font_diff, diff["name"], d_text_color, 560)
-                            self.screen.blit(diff_text, (diff_rect.x + 22, diff_rect.y + 11))
-                            
+                            # Star rating pill (Vector star + rating)
+                            star_val = self._get_star_rating(diff, song.get("bpm", 130))
+                            star_cx = diff_rect.x + 22
+                            star_cy = diff_rect.centery
+                            self._draw_star(self.screen, star_cx, star_cy, radius=7, color=(255, 215, 50))
+                            star_text_surf = self.font_small.render(f"{star_val:.1f}", True, (255, 215, 60))
+                            self.screen.blit(star_text_surf, (star_cx + 12, star_cy - star_text_surf.get_height() // 2))
+
+                            diff_text = self._render_fitted_text(self.font_diff, diff["name"], d_text_color, 350)
+                            self.screen.blit(diff_text, (star_cx + 12 + star_text_surf.get_width() + 10, diff_rect.y + 11))
+                            # Personal best badge on diff row
+                            pb = score_db.get_best(song["title"], diff["name"])
+                            if pb:
+                                pb_grade = pb.get("grade", "")
+                                pb_score = pb.get("score", 0)
+                                GRADE_COLORS_PB = {
+                                    "SS": (255, 215,  50), "S":  (255, 215,  50),
+                                    "A":  ( 90, 230, 120), "B":  ( 80, 170, 255),
+                                    "C":  (200, 120, 255), "D":  (255,  70,  70),
+                                }
+                                pb_col = GRADE_COLORS_PB.get(pb_grade, self.MUTED_COLOR)
+                                pb_surf = self.font_small.render(f"{pb_grade}  {pb_score:,}", True, pb_col)
+                                self.screen.blit(pb_surf, pb_surf.get_rect(midright=(diff_rect.right - 14, diff_rect.centery)))
+
                             if mouse_clicked and is_diff_hovered and not self.show_mods_modal:
                                 self._play_click()
                                 self.selected_song_index = i
@@ -815,26 +897,41 @@ class SongSelect:
             self.screen.set_clip(None)
 
             # BOTTOM-LEFT MODS BAR
-            mods_btn_rect = pygame.Rect(50, self.height - 80, 170, 44)
+            mods_btn_rect  = pygame.Rect(50, self.height - 80, 170, 44)
+            sort_btn_rect  = pygame.Rect(228, self.height - 80, 160, 44)
             is_mods_hovered = mods_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
+            is_sort_hovered = sort_btn_rect.collidepoint(mouse_pos) and not self.show_mods_modal
             if is_mods_hovered:
                 curr_hovered_item = "mods_btn"
+            if is_sort_hovered:
+                curr_hovered_item = "sort_btn"
 
             if is_mods_hovered and mouse_clicked:
                 self._play_click()
                 self.show_mods_modal = True
+            if is_sort_hovered and mouse_clicked:
+                self._play_click()
+                self.sort_mode = (self.sort_mode + 1) % len(self.SORT_LABELS)
 
+            # MODS button
             mods_btn_bg = self.HOVER_COLOR if is_mods_hovered else (24, 24, 34)
             pygame.draw.rect(self.screen, mods_btn_bg, mods_btn_rect, border_radius=8)
             pygame.draw.rect(self.screen, self.ACCENT_COLOR if (is_mods_hovered or GlobalState.active_mods) else (55, 55, 75), mods_btn_rect, 2, border_radius=8)
-            
             mod_btn_text = f"MODS ({len(GlobalState.active_mods)}) [F1]" if GlobalState.active_mods else "MODS [F1]"
             mod_btn_surf = self.font_diff.render(mod_btn_text, True, self.ACCENT_COLOR if GlobalState.active_mods else self.TEXT_COLOR)
             self.screen.blit(mod_btn_surf, mod_btn_surf.get_rect(center=mods_btn_rect.center))
 
+            # SORT button
+            sort_btn_bg = self.HOVER_COLOR if is_sort_hovered else (24, 24, 34)
+            pygame.draw.rect(self.screen, sort_btn_bg, sort_btn_rect, border_radius=8)
+            pygame.draw.rect(self.screen, (55, 55, 75), sort_btn_rect, 1, border_radius=8)
+            sort_surf = self.font_small.render(self.SORT_LABELS[self.sort_mode], True,
+                                               self.ACCENT_COLOR if is_sort_hovered else self.MUTED_COLOR)
+            self.screen.blit(sort_surf, sort_surf.get_rect(center=sort_btn_rect.center))
+
             # Active Mod Badges next to MODS button at bottom left
             if GlobalState.active_mods:
-                badge_x = 235
+                badge_x = 400
                 for m_code in sorted(GlobalState.active_mods):
                     b_rect = pygame.Rect(badge_x, self.height - 56, 42, 32)
                     pygame.draw.rect(self.screen, (35, 35, 52), b_rect, border_radius=6)
@@ -844,7 +941,7 @@ class SongSelect:
                     badge_x += 48
 
             # Footer Instructions
-            esc_surf = self.font_small.render("Press ESC to return / clear search  |  Scroll with Mouse Wheel  |  Press F1 for Mods", True, self.MUTED_COLOR)
+            esc_surf = self.font_small.render("ESC: back / clear search  |  Mouse Wheel: scroll  |  F1: Mods  |  F11: Fullscreen", True, self.MUTED_COLOR)
             self.screen.blit(esc_surf, (50, self.height - 25))
 
             # MOD SELECTION MODAL

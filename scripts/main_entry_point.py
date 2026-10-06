@@ -55,20 +55,21 @@ def main(file_to_import: Optional[str] = None):
     last_frame = None
     
     while running:
+        active_screen = pygame.display.get_surface()
         if current_state == "menu":
-            menu = MainMenu(screen)
+            menu = MainMenu(active_screen)
             next_state = menu.run(last_frame)
-            last_frame = screen.copy()
+            last_frame = pygame.display.get_surface().copy()
             current_state = next_state
         elif current_state == "song_select":
-            song_select = SongSelect(screen)
+            song_select = SongSelect(active_screen)
             next_state = song_select.run(last_frame)
-            last_frame = screen.copy()
+            last_frame = pygame.display.get_surface().copy()
             current_state = next_state
         elif current_state == "play":
-            game_manager = GameManager(screen)
+            game_manager = GameManager(active_screen)
             next_state = game_manager.run(last_frame)
-            last_frame = screen.copy()
+            last_frame = pygame.display.get_surface().copy()
             current_state = next_state
         elif current_state == "retry":
             current_state = "play"

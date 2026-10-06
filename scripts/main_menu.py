@@ -397,11 +397,50 @@ class MainMenu:
                             break
                                   
                 if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+                    if event.key == pygame.K_F11:
+                        flags = self.screen.get_flags()
+                        if flags & pygame.FULLSCREEN:
+                            self.screen = pygame.display.set_mode(
+                                (self.width, self.height), pygame.RESIZABLE)
+                        else:
+                            self.screen = pygame.display.set_mode(
+                                (0, 0), pygame.FULLSCREEN)
+                            self.width, self.height = self.screen.get_size()
+                    elif event.key == pygame.K_ESCAPE:
                         if self.options_open:
                             self._save_options()
                             self.options_open = False
                             self.hovered_btn = None
+                    elif not self.options_open:
+                        if event.key in (pygame.K_UP, pygame.K_w):
+                            if self.keyboard_focus_idx is None:
+                                self.keyboard_focus_idx = 0
+                            else:
+                                self.keyboard_focus_idx = (self.keyboard_focus_idx - 1) % len(self.buttons)
+                            self._play_hover()
+                        elif event.key in (pygame.K_DOWN, pygame.K_s):
+                            if self.keyboard_focus_idx is None:
+                                self.keyboard_focus_idx = 0
+                            else:
+                                self.keyboard_focus_idx = (self.keyboard_focus_idx + 1) % len(self.buttons)
+                            self._play_hover()
+                        elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                            if self.keyboard_focus_idx == 0:
+                                self._play_click()
+                                return "song_select"
+                            elif self.keyboard_focus_idx == 1:
+                                self._play_click()
+                                self.temp_speed = GlobalState.note_speed
+                                self.temp_music_volume = GlobalState.music_volume
+                                self.temp_sfx_volume = GlobalState.sfx_volume
+                                self.temp_audio_offset = GlobalState.audio_offset_ms
+                                self.temp_bg_brightness = GlobalState.bg_brightness
+                                self.temp_fps_mode = GlobalState.fps_mode
+                                self.options_open = True
+                                self.hovered_btn = None
+                            elif self.keyboard_focus_idx == 2:
+                                self._play_click()
+                                return "quit"
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mouse_clicked = True
                     if self.logo_small and logo_hit_rect.collidepoint(event.pos):
@@ -648,7 +687,7 @@ class MainMenu:
                 # Arcade Keybinds Footer
                 footer_y = self.height - 35
                 pygame.draw.line(self.screen, (30, 32, 45), (0, footer_y - 10), (self.width, footer_y - 10), 1)
-                hud_text = self.font_mono.render("[ ENTER / CLICK ] SELECT     [ DRAG & DROP ] BEATMAP FILE", True, self.MUTED_COLOR)
+                hud_text = self.font_mono.render("[ ENTER / CLICK ] SELECT     [ UP / DOWN ] NAVIGATE     [ F11 ] FULLSCREEN     [ DRAG & DROP ] BEATMAP FILE", True, self.MUTED_COLOR)
                 self.screen.blit(hud_text, (100, footer_y))
                                 
                 if mouse_clicked:
