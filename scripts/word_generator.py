@@ -15,8 +15,6 @@ COMMON_WORDS = {
 
 
 class WordGenerator:
-    """Provides gameplay words sourced from the dictionary API with a minimal fallback."""
-
     _cached_api_words = []
 
     @staticmethod
@@ -74,9 +72,6 @@ class WordGenerator:
 
     @classmethod
     def get_word_sequence(cls, total_notes: int) -> list:
-        """Generates a non-repeating sequence of easy 3-6 letter words whose
-        cumulative character count meets or exceeds total_notes.
-        """
         if total_notes <= 0:
             return ["START"]
 
