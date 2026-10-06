@@ -9,12 +9,10 @@ echo.
 
 set "TARGET=%~dp0RhythmType.bat"
 
-:: 1. Register file types in HKCU (User-scoped, no admin required)
 reg add "HKCU\Software\Classes\RhythmType.Beatmap\shell\open\command" /ve /t REG_SZ /d "\"%TARGET%\" \"%%1\"" /f >nul 2>&1
 reg add "HKCU\Software\Classes\.osz" /ve /t REG_SZ /d "RhythmType.Beatmap" /f >nul 2>&1
 reg add "HKCU\Software\Classes\.osu" /ve /t REG_SZ /d "RhythmType.Beatmap" /f >nul 2>&1
 
-:: 2. Register Applications entry for Open With menu
 reg add "HKCU\Software\Classes\Applications\RhythmType.bat\shell\open\command" /ve /t REG_SZ /d "\"%TARGET%\" \"%%1\"" /f >nul 2>&1
 reg add "HKCU\Software\Classes\Applications\RhythmType.bat\SupportedTypes" /v ".osz" /t REG_SZ /d "" /f >nul 2>&1
 reg add "HKCU\Software\Classes\Applications\RhythmType.bat\SupportedTypes" /v ".osu" /t REG_SZ /d "" /f >nul 2>&1

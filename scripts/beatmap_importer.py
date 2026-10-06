@@ -13,7 +13,7 @@ class BeatmapImporter:
     def sanitize_name(name: str) -> str:
         """Removes characters invalid in Windows directory names."""
         clean = re.sub(r'[\\/*?:"<>|]', "", name).strip()
-        # Collapse multiple spaces or dashes
+                                            
         clean = re.sub(r'\s+', ' ', clean)
         return clean or "imported_song"
 
@@ -36,7 +36,7 @@ class BeatmapImporter:
                 detected_title = ""
                 detected_artist = ""
                 
-                # Inspect internal .osu files to find proper Title & Artist
+                                                                           
                 for osu_name in osu_members:
                     try:
                         with archive.open(osu_name) as f:
@@ -54,7 +54,7 @@ class BeatmapImporter:
                     if detected_title:
                         break
 
-                # Fallback to filename if metadata wasn't detected
+                                                                  
                 if not detected_title:
                     base_name = os.path.splitext(os.path.basename(osz_path))[0]
                     detected_title = base_name
@@ -65,14 +65,14 @@ class BeatmapImporter:
                 target_dir = GlobalState.MUSIC_DIR / folder_name
                 target_dir.mkdir(parents=True, exist_ok=True)
 
-                # Extract all files
+                                   
                 archive.extractall(target_dir)
                 print(f"Successfully extracted beatmap to {target_dir}")
 
-                # Rescan song library to pick up the new map
+                                                            
                 GlobalState.scan_songs()
 
-                # Find the imported song in the active library
+                                                              
                 resolved_target_dir = str(target_dir.resolve())
                 for idx, song in enumerate(GlobalState.song_list):
                     if os.path.abspath(song.get("folder_path", "")) == resolved_target_dir:
@@ -80,7 +80,7 @@ class BeatmapImporter:
                         GlobalState.expanded_song_index = idx
                         return song
 
-                # If exact folder match didn't trigger, select last song in list
+                                                                                
                 if GlobalState.song_list:
                     idx = len(GlobalState.song_list) - 1
                     GlobalState.selected_song_index = idx
@@ -102,7 +102,7 @@ class BeatmapImporter:
         src_dir = os.path.dirname(os.path.abspath(osu_path))
         music_root = str(GlobalState.MUSIC_DIR.resolve())
 
-        # If already located inside the music folder, simply rescan
+                                                                   
         if os.path.abspath(src_dir).startswith(music_root):
             GlobalState.scan_songs()
             for idx, song in enumerate(GlobalState.song_list):
@@ -111,7 +111,7 @@ class BeatmapImporter:
                     GlobalState.expanded_song_index = idx
                     return song
 
-        # Otherwise copy chart and media to assets/audio/music/
+                                                               
         try:
             meta = BeatmapParser.get_beatmap_metadata(osu_path)
             title = meta.get("title") or os.path.splitext(os.path.basename(osu_path))[0]
@@ -125,13 +125,13 @@ class BeatmapImporter:
             dest_osu = target_dir / os.path.basename(osu_path)
             shutil.copy2(osu_path, dest_osu)
 
-            # Copy audio file if present in the source folder
+                                                             
             if meta.get("audio_filename"):
                 src_audio = os.path.join(src_dir, meta["audio_filename"])
                 if os.path.exists(src_audio):
                     shutil.copy2(src_audio, target_dir / meta["audio_filename"])
 
-            # Copy background if present
+                                        
             if meta.get("background"):
                 src_bg = os.path.join(src_dir, meta["background"])
                 if os.path.exists(src_bg):

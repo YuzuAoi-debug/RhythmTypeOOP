@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 
-# Base project root directory
+                             
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 
@@ -23,7 +23,7 @@ def get_fps_target(mode: str) -> int:
     elif mode == "60fps":
         return 60
     elif mode == "refresh_rate":
-        # 1. Try Pygame-ce refresh rate API if available
+                                                        
         try:
             import pygame
             get_rr = getattr(pygame.display, "get_current_refresh_rate", None)
@@ -34,7 +34,7 @@ def get_fps_target(mode: str) -> int:
         except Exception:
             pass
 
-        # 2. On Windows, query display settings directly if standard Pygame lacks get_current_refresh_rate
+                                                                                                          
         try:
             if sys.platform == "win32":
                 import ctypes
@@ -84,21 +84,21 @@ def get_fps_target(mode: str) -> int:
 SETTINGS_FILE = BASE_DIR / "settings.json"
 
 class GlobalState:
-    # Volume settings (0.0 to 1.0)
+                                  
     music_volume: float = 0.8
     sfx_volume: float = 0.8
     
-    # Backward compatibility aliases
+                                    
     menu_volume: float = 0.8
     game_volume: float = 0.8
     
     note_speed: float = 9.0
     hp: float = 100.0
-    fps_mode: str = "refresh_rate"  # "unlimited", "60fps", "refresh_rate"
-    audio_offset_ms: float = 0.0     # Hardware audio delay offset (-100ms to +100ms)
-    bg_brightness: float = 0.4       # Gameplay background brightness (0.0 to 1.0)
+    fps_mode: str = "refresh_rate"                                        
+    audio_offset_ms: float = 0.0                                                     
+    bg_brightness: float = 0.4                                                    
     
-    # Active Game Mods (e.g. {"DT", "HR", "SD", "PF", "NF"})
+                                                            
     active_mods: set = set()
 
     MOD_MULTIPLIERS: Dict[str, float] = {
@@ -132,13 +132,13 @@ class GlobalState:
                 elif mod == "SD":
                     cls.active_mods.discard("PF")
 
-    # Audio file paths
+                      
     HITSOUND_PATH = get_asset_path("gameplay_audio/hitsound.wav")
     MISS_SOUND_PATH = get_asset_path("gameplay_audio/miss-sound.wav")
     HOVER_SOUND_PATH = get_asset_path("gameplay_audio/hover.mp3")
     CLICK_SOUND_PATH = get_asset_path("gameplay_audio/click.mp3")
     
-    # Image file paths
+                      
     LOGO_PATH = get_asset_path("assets/images/logo.png")
     ICON_PATH = get_asset_path("assets/images/icon.png")
     
@@ -148,14 +148,14 @@ class GlobalState:
     def get_asset_path(rel_path: str) -> str:
         return get_asset_path(rel_path)
 
-    # Active song indices for SongSelect navigation
+                                                   
     selected_song_index: int = 0
     expanded_song_index: int = 0
 
-    # Payload for the active song to play
+                                         
     selected_song_data: Dict[str, Any] = {}
     
-    # Master Song Library Database with all difficulties & background assets
+                                                                            
     song_list: List[Dict[str, Any]] = [
         {
             "title": "Fennel - confess",
@@ -244,6 +244,6 @@ class GlobalState:
         except Exception as e:
             print(f"Warning: Failed to save settings ({e}).")
 
-# Auto-load existing settings and scan available beatmaps upon import
+                                                                     
 GlobalState.load_settings()
 GlobalState.scan_songs()

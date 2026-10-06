@@ -101,14 +101,14 @@ class Conductor:
         elapsed = max(0.0, now - self.start_time - self.total_paused_time)
         song_elapsed = self.audio_start_pos + (elapsed * self.time_multiplier)
         
-        # Check Pygame mixer position to calibrate initial buffer delay
+                                                                       
         raw_pos_ms = pygame.mixer.music.get_pos()
         if raw_pos_ms > 0 and not self.audio_synced:
             hardware_pos = self.audio_start_pos + (raw_pos_ms / 1000.0) * self.time_multiplier
             self.audio_sync_offset = song_elapsed - hardware_pos
             self.audio_synced = True
 
-        # Apply calibrated audio offset + user custom audio offset setting
+                                                                          
         user_offset_sec = GlobalState.audio_offset_ms / 1000.0
         calibrated_time = song_elapsed - self.audio_sync_offset + user_offset_sec
         

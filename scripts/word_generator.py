@@ -3,9 +3,9 @@ import urllib.request
 import json
 import re
 
-# Comprehensive offline bank of clean, common, easy 3-6 letter English words
+                                                                            
 BASE_EASY_WORDS = [
-    # 3 letters
+               
     "AIR", "ALL", "AND", "ANY", "ARM", "ART", "ASK", "BAD", "BAG", "BAR",
     "BAT", "BED", "BEE", "BIG", "BOX", "BOY", "BUS", "BUY", "CAN", "CAR",
     "CAT", "COW", "CRY", "CUP", "CUT", "DAY", "DOG", "DRY", "EAR", "EAT",
@@ -21,7 +21,7 @@ BASE_EASY_WORDS = [
     "THE", "TIE", "TIP", "TOE", "TOP", "TOY", "TRY", "TWO", "USE", "VAN",
     "WAR", "WAY", "WET", "WHO", "WHY", "WIN", "YES", "YET", "ZOO",
 
-    # 4 letters
+               
     "ABLE", "ACID", "AGED", "ALSO", "AREA", "ARMY", "AWAY", "BABY", "BACK",
     "BALL", "BAND", "BANK", "BASE", "BATH", "BEAR", "BEAT", "BEEN", "BELL",
     "BEST", "BIRD", "BLOW", "BLUE", "BOAT", "BODY", "BONE", "BOOK", "BORN",
@@ -57,7 +57,7 @@ BASE_EASY_WORDS = [
     "WENT", "WEST", "WHAT", "WHEN", "WIDE", "WIFE", "WILD", "WILL", "WIND",
     "WING", "WISE", "WISH", "WITH", "WOOD", "WORD", "WORK", "YARD", "YEAR",
 
-    # 5 letters
+               
     "ABOUT", "ABOVE", "ACTOR", "ADMIT", "ADOPT", "AFTER", "AGAIN", "AGENT",
     "AGREE", "AHEAD", "ALARM", "ALBUM", "ALERT", "ALIKE", "ALIVE", "ALLOW",
     "ALONE", "ALONG", "ALTER", "AMONG", "ANGEL", "ANGER", "ANGLE", "ANGRY",
@@ -111,7 +111,7 @@ BASE_EASY_WORDS = [
     "VITAL", "VOICE", "WASTE", "WATCH", "WATER", "WHEEL", "WHERE", "WHICH",
     "WHILE", "WHITE", "WHOLE", "WOMAN", "WORLD", "WORRY", "WORTH", "YOUTH",
 
-    # 6 letters
+               
     "ACTION", "ACTIVE", "ACTUAL", "ADVICE", "AFFORD", "ALWAYS", "ANIMAL",
     "ANSWER", "APPEAL", "APPEAR", "AROUND", "ARRIVE", "ARTIST", "ASPECT",
     "AUTUMN", "AVENUE", "BEAUTY", "BECOME", "BEFORE", "BEHIND", "BELIEF",
@@ -181,7 +181,7 @@ BASE_EASY_WORDS = [
     "WORKER", "WRITER", "YELLOW", "ZEPHYR"
 ]
 
-# Ensure everything meets the 3-6 letter constraint and is clean A-Z
+                                                                    
 EASY_WORDS = [w for w in BASE_EASY_WORDS if 3 <= len(w) <= 6 and re.match(r"^[A-Z]+$", w)]
 
 class WordGenerator:
@@ -217,7 +217,7 @@ class WordGenerator:
                     combined_pool[0], combined_pool[1] = combined_pool[1], combined_pool[0]
                 pool_index = 0
 
-            # If nearing the end and exact length match is available, pick it
+                                                                             
             if 3 <= remaining <= 6:
                 exact_matches = [w for w in combined_pool if len(w) == remaining and (not sequence or w != sequence[-1])]
                 if exact_matches:

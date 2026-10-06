@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-# Ensure the project root and scripts directory are on sys.path
+                                                               
 BASE_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 

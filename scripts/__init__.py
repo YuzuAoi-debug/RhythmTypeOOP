@@ -1,4 +1,4 @@
-# Marks scripts as a Python package and ensures project directories are on sys.path
+                                                                                   
 import sys
 from pathlib import Path
 

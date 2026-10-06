@@ -12,7 +12,7 @@ from typing import Dict, Optional, Any
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _SCORES_FILE = _BASE_DIR / "scores.json"
 
-# In-memory cache so repeated reads hit dict, not disk
+                                                      
 _cache: Dict[str, Any] = {}
 _loaded = False
 

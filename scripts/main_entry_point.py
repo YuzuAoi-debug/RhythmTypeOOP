@@ -10,13 +10,13 @@ from song_select import SongSelect
 from beatmap_importer import BeatmapImporter
 
 def main(file_to_import: Optional[str] = None):
-    # Check CLI arguments if not explicitly passed
+                                                  
     if not file_to_import and len(sys.argv) > 1:
         arg = sys.argv[1].strip()
         if os.path.exists(arg):
             file_to_import = arg
 
-    # Pre-initialize Pygame mixer for low-latency audio playback
+                                                                
     try:
         pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512)
     except Exception:
@@ -31,7 +31,7 @@ def main(file_to_import: Optional[str] = None):
 
     WIDTH, HEIGHT = 1280, 720
 
-    # Set window / taskbar icon
+                               
     if os.path.exists(GlobalState.ICON_PATH):
         try:
             icon_surf = pygame.image.load(GlobalState.ICON_PATH)
@@ -42,10 +42,10 @@ def main(file_to_import: Optional[str] = None):
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("RhythmType - Pure Python Edition")
     
-    # State Machine Router
+                          
     current_state = "menu"
     
-    # If a beatmap file was passed to open, import it and go straight to song select
+                                                                                    
     if file_to_import:
         imported = BeatmapImporter.import_file(file_to_import)
         if imported:

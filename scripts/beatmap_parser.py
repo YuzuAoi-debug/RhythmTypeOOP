@@ -35,7 +35,7 @@ class BeatmapParser:
             print(f"Error reading beatmap file {file_path}: {e}")
             return [1.0 + i * 0.6 for i in range(50)]
 
-        # Ensure timestamps are strictly sorted
+                                               
         hit_times.sort()
         return hit_times
 
@@ -78,7 +78,7 @@ class BeatmapParser:
                         elif line.startswith("Version:"):
                             metadata["version"] = line.split("Version:", 1)[1].strip()
                     elif current_section == "[TimingPoints]" and not found_bpm:
-                        # Format: time,beatLength,meter,sampleSet,sampleIndex,volume,uninherited,effects
+                                                                                                        
                         parts = line.split(",")
                         if len(parts) >= 2:
                             try:
@@ -92,7 +92,7 @@ class BeatmapParser:
                             except ValueError:
                                 pass
                     elif current_section == "[Events]":
-                        # Video or Background: 0,0,"bg.jpg",0,0
+                                                               
                         if line.startswith("0,0,"):
                             parts = line.split(",")
                             if len(parts) >= 3:
@@ -164,7 +164,7 @@ class BeatmapParser:
         if not difficulties:
             return None
 
-        # Resolve Audio Path
+                            
         audio_path = ""
         if expected_audio:
             candidate = os.path.join(song_dir, expected_audio)
@@ -173,7 +173,7 @@ class BeatmapParser:
         if not audio_path and audio_files:
             audio_path = audio_files[0]
 
-        # Resolve Background Path
+                                 
         bg_path = ""
         if expected_bg:
             candidate = os.path.join(song_dir, expected_bg)
@@ -182,7 +182,7 @@ class BeatmapParser:
         if not bg_path and image_files:
             bg_path = image_files[0]
 
-        # Title Formatting
+                          
         if not main_title:
             main_title = os.path.basename(song_dir)
         full_title = f"{main_artist} - {main_title}" if (main_artist and main_artist not in main_title) else main_title
